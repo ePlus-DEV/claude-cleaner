@@ -4,7 +4,7 @@
 
 - Improved asynchronous directory scanning and deletion safety.
 - Added automated tests on Windows, macOS, and Linux.
-- Added tag-based GitHub Release automation.
+- Added OIDC-based npm publishing and tag-based GitHub Release automation.
 - Expanded installation, usage, troubleshooting, and release documentation.
 
 ## 1.0.0

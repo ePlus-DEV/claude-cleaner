@@ -1,11 +1,27 @@
 # Claude Session Cleaner
 
-Interactive CLI for safely finding and deleting selected Claude Code project
-session folders.
+[![npm version](https://img.shields.io/npm/v/claude-session-cleaner.svg)](https://www.npmjs.com/package/claude-session-cleaner)
+[![CI](https://github.com/hoangsvit/claude-session-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/hoangsvit/claude-session-cleaner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-It supports Windows, macOS, and Linux with Node.js 18 or newer.
+Claude Session Cleaner is an interactive CLI that inspects Claude Code project
+session history, displays disk usage, and safely deletes only the sessions you
+select.
+
+It runs on Windows, macOS, and Linux with Node.js 18 or newer.
 
 <img width="1125" height="621" alt="Claude Session Cleaner preview" src="https://github.com/user-attachments/assets/89094ee1-2a41-4aec-b47e-a14425b57d4c" />
+
+## Features
+
+- Finds Claude Code project sessions automatically.
+- Shows session name, last modification time, and disk usage.
+- Supports individual, multiple, range, and all-session selection.
+- Requires an explicit `DELETE` confirmation.
+- Rejects deletion paths outside the Claude `projects` directory.
+- Uses asynchronous, concurrency-limited filesystem scanning.
+- Supports custom Claude configuration directories.
+- Works on Windows, macOS, and Linux.
 
 ## What it deletes
 
@@ -65,7 +81,7 @@ claude-session-cleaner
 ### Run from the source code
 
 ```bash
-git clone https://github.com/mic1/claude-session-cleaner.git
+git clone https://github.com/hoangsvit/claude-session-cleaner.git
 cd claude-session-cleaner
 npm install
 npm start
@@ -229,21 +245,56 @@ npm run pack:dry
 for Node.js 18, 20, and 22 on Windows, macOS, and Linux for pushes and pull
 requests.
 
-## Creating a GitHub Release
+## Automated npm and GitHub release
 
-[`.github/workflows/release.yml`](.github/workflows/release.yml) creates a
-GitHub Release when a tag matching `v*` is pushed. It first tests the package on
-Windows, macOS, and Linux.
+[`.github/workflows/release.yml`](.github/workflows/release.yml) publishes the
+package to npm and creates a GitHub Release when a tag matching `v*` is pushed.
+It first tests the package on Windows, macOS, and Linux.
 
 The tag must match the version in `package.json`. For example, version `1.1.0`
 must use tag `v1.1.0`.
+
+### Configure npm Trusted Publishing
+
+The workflow uses OpenID Connect (OIDC), so it does not need an `NPM_TOKEN`,
+`.env` file, or long-lived GitHub Actions secret.
+
+For an existing npm package:
+
+1. Sign in to [npmjs.com](https://www.npmjs.com/).
+2. Open the `claude-session-cleaner` package.
+3. Open **Settings**, then locate **Trusted Publisher**.
+4. Select **GitHub Actions**.
+5. Configure these exact values:
+
+| npm setting | Value |
+| --- | --- |
+| Organization or user | `hoangsvit` |
+| Repository | `claude-session-cleaner` |
+| Workflow filename | `release.yml` |
+| Environment | Leave empty |
+| Allowed action | `npm publish` |
+
+Trusted Publishing can only be configured after the package exists on npm. For
+the first publication, publish once from a trusted local machine:
+
+```bash
+npm login
+npm publish
+```
+
+After that, configure Trusted Publishing and use the release workflow for later
+versions.
+
+Never commit an npm token to `.env`, `.npmrc`, source code, or workflow files.
+
+### Publish a new version
 
 Release steps:
 
 ```bash
 npm version patch
-git push
-git push origin v1.0.1
+git push --follow-tags
 ```
 
 Use `minor` or `major` instead of `patch` when appropriate:
@@ -257,15 +308,11 @@ After all platform tests pass, the workflow:
 
 1. Verifies that the tag matches `package.json`.
 2. Builds the npm `.tgz` archive.
-3. Creates a GitHub Release with generated release notes.
-4. Uploads the archive to the release.
+3. Publishes the package to npm using short-lived OIDC credentials.
+4. Creates a GitHub Release with generated release notes.
+5. Uploads the archive to the GitHub Release.
 
-Publishing to npm remains a separate explicit operation:
-
-```bash
-npm login
-npm publish
-```
+If npm publishing fails, the GitHub Release is not created.
 
 ## License
 

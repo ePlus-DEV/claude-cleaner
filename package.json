@@ -1,10 +1,10 @@
 {
   "name": "claude-session-cleaner",
   "version": "1.0.0",
-  "description": "Interactive cross-platform CLI to safely delete selected Claude Code project session logs.",
+  "description": "Safely inspect and delete selected Claude Code project session history from an interactive cross-platform CLI.",
   "type": "commonjs",
   "bin": {
-    "claude-session-cleaner": "./bin/claude-session-cleaner.js"
+    "claude-session-cleaner": "bin/claude-session-cleaner.js"
   },
   "files": [
     "bin",
@@ -21,8 +21,10 @@
     "claude",
     "claude-code",
     "cleaner",
+    "cleanup",
     "logs",
     "session",
+    "session-cleaner",
     "history",
     "cli",
     "cross-platform"
@@ -41,6 +43,7 @@
   },
   "homepage": "https://github.com/hoangsvit/claude-session-cleaner#readme",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
