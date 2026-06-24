@@ -275,18 +275,57 @@ For an existing npm package:
 | Environment | Leave empty |
 | Allowed action | `npm publish` |
 
-Trusted Publishing can only be configured after the package exists on npm. For
-the first publication, publish once from a trusted local machine:
+Trusted Publishing can only be configured after the package exists on npm. An
+attempt to use OIDC before the first publication usually fails with npm error
+`E404` even when the package name is available.
+
+### First publication
+
+Choose one of these bootstrap methods.
+
+Publish from a trusted local machine:
 
 ```bash
 npm login
 npm publish
 ```
 
-After that, configure Trusted Publishing and use the release workflow for later
-versions.
+Or publish through GitHub Actions:
+
+1. Create a granular npm access token with read/write permission for packages.
+2. Open the GitHub repository.
+3. Go to **Settings → Secrets and variables → Actions**.
+4. Create a repository secret named `NPM_TOKEN`.
+5. Commit the workflow changes and push a new version tag.
+
+Do not simply re-run an older failed job after changing the workflow. GitHub
+uses the workflow stored at that job's original tag. For example, after a
+failed `v1.0.1` bootstrap release:
+
+```bash
+git add .
+git commit -m "Fix npm publishing bootstrap"
+npm version patch
+git push --follow-tags
+```
+
+This creates `v1.0.2`, which includes the corrected workflow.
+
+The release workflow passes this optional secret as `NODE_AUTH_TOKEN`. After
+the first version exists on npm:
+
+1. Configure Trusted Publishing using the table above.
+2. Delete the `NPM_TOKEN` GitHub secret.
+3. Use OIDC for all later releases.
 
 Never commit an npm token to `.env`, `.npmrc`, source code, or workflow files.
+
+### `always-auth` warning
+
+The workflow does not generate an npm registry `.npmrc`, so current npm
+versions will not receive the deprecated `always-auth` option from
+`actions/setup-node`. The npm registry is selected through `publishConfig` in
+`package.json`.
 
 ### Publish a new version
 
