@@ -1,7 +1,10 @@
 # Claude Session Cleaner
 
 [![CI](https://github.com/hoangsvit/claude-session-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/hoangsvit/claude-session-cleaner/actions/workflows/ci.yml)
-[![Release](https://github.com/hoangsvit/claude-session-cleaner/actions/workflows/release.yml/badge.svg)](https://github.com/hoangsvit/claude-session-cleaner/releases)
+[![Release](https://img.shields.io/github/v/release/hoangsvit/claude-session-cleaner)](https://github.com/hoangsvit/claude-session-cleaner/releases)
+[![npm version](https://img.shields.io/npm/v/claude-session-cleaner.svg)](https://www.npmjs.com/package/claude-session-cleaner)
+[![Go version](https://img.shields.io/github/go-mod/go-version/hoangsvit/claude-session-cleaner)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hoangsvit/claude-session-cleaner)](https://goreportcard.com/report/github.com/hoangsvit/claude-session-cleaner)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Claude Session Cleaner** is an interactive terminal UI — built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Gloss](https://github.com/charmbracelet/lipgloss) — that inspects Claude Code project session history, displays disk usage, and safely deletes only the sessions you select.
