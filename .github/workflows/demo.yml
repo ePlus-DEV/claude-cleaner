@@ -30,6 +30,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Download dependencies
+        run: go mod tidy
+
       - name: Build binary
         run: go build -o claude-session-cleaner .
 

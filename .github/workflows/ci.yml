@@ -34,6 +34,9 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: true
 
+      - name: Download dependencies
+        run: go mod tidy
+
       - name: Build
         run: go build -v ./...
 
