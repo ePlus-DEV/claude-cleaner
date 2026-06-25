@@ -2,9 +2,9 @@ Output demo/cancel.gif
 
 Set Theme "Dracula"
 Set FontSize 16
-Set Framerate 15
+Set Framerate 12
 Set Margin 0
-Set PlaybackSpeed 0.8
+Set PlaybackSpeed 1
 
 Type `PATH="$PWD/demo/mock-bin:$PATH" ./claude-cleaner --claude-dir /tmp/claude-demo`
 Enter

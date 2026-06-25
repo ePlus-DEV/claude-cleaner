@@ -33,6 +33,13 @@ jobs:
           go-version: "1.24"
           cache: true
 
+      - name: Cache VHS binary
+        id: cache-vhs
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/vhs
+          key: ${{ runner.os }}-vhs-v0.9.0
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -43,6 +50,7 @@ jobs:
           sudo apt-get install -y ffmpeg ttyd
 
       - name: Install VHS
+        if: steps.cache-vhs.outputs.cache-hit != 'true'
         run: go install github.com/charmbracelet/vhs@v0.9.0
 
       - name: Download app dependencies
