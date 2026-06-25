@@ -1,9 +1,7 @@
 Output demo/help.gif
 
 Set Theme "Dracula"
-Set FontSize 16
-Set Width 120
-Set Height 120
+Set FontSize 14
 Set Margin 0
 Set PlaybackSpeed 1
 
