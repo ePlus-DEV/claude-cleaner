@@ -81,20 +81,27 @@ jobs:
         id: publish-gifs
         if: github.event_name == 'pull_request'
         run: |
-          {
-            echo 'help<<EOF'
-            vhs publish --markdown demo/help.gif
-            echo EOF
-            echo 'full<<EOF'
-            vhs publish --markdown demo/full.gif
-            echo EOF
-            echo 'cancel<<EOF'
-            vhs publish --markdown demo/cancel.gif
-            echo EOF
-            echo 'update<<EOF'
-            vhs publish --markdown demo/update.gif
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
+          set_output() {
+            local name="$1"
+            local value="$2"
+            local delimiter="vhs_${name}_$(date +%s%N)"
+
+            {
+              printf '%s<<%s\n' "$name" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          help_markdown="$(vhs publish --markdown demo/help.gif)"
+          full_markdown="$(vhs publish --markdown demo/full.gif)"
+          cancel_markdown="$(vhs publish --markdown demo/cancel.gif)"
+          update_markdown="$(vhs publish --markdown demo/update.gif)"
+
+          set_output help "$help_markdown"
+          set_output full "$full_markdown"
+          set_output cancel "$cancel_markdown"
+          set_output update "$update_markdown"
 
       - name: Comment demo GIF preview on PR
         if: github.event_name == 'pull_request'
