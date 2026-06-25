@@ -6,6 +6,6 @@ Set Width 96
 Set Height 28
 Set PlaybackSpeed 1
 
-Type "node bin/claude-session-cleaner.js --help"
+Type "go run . --help"
 Enter
-Sleep 3s
+Sleep 4s

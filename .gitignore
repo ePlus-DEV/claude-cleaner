@@ -1,6 +1,11 @@
-node_modules/
-npm-debug.log*
+# Go
+/claude-session-cleaner
+/claude-session-cleaner.exe
+/dist/
+
+# macOS
 .DS_Store
+
+# Env
 .env
 .env.*
-*.tgz

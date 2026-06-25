@@ -8,14 +8,24 @@ Set PlaybackSpeed 0.8
 
 Exec "node demo/seed.js /tmp/claude-demo"
 
-Type "node bin/claude-session-cleaner.js --claude-dir /tmp/claude-demo"
+Type "go run . --claude-dir /tmp/claude-demo"
 Enter
-Sleep 3s
+Sleep 5s
 
-Type "1,3"
+Space
+Down
+Down
+Space
+Sleep 500ms
+
 Enter
 Sleep 1s
 
 Type "nope"
 Enter
-Sleep 2s
+Sleep 1s
+
+Escape
+Sleep 1s
+
+Type "q"

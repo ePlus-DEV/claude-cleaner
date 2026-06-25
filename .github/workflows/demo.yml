@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - bin/**
+      - "*.go"
       - demo/*.tape
       - demo/seed.js
   workflow_dispatch:
@@ -21,9 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+
+      - name: Build binary
+        run: go build -o claude-session-cleaner .
 
       - name: Generate help GIF
         uses: charmbracelet/vhs-action@v2
