@@ -4,6 +4,7 @@ Set Theme "Dracula"
 Set FontSize 16
 Set Width 120
 Set Height 120
+Set Margin 0
 Set PlaybackSpeed 1
 
 Type "./claude-cleaner --help"
