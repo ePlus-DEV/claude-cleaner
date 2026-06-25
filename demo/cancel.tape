@@ -3,27 +3,25 @@ Output demo/cancel.gif
 Set Theme "Dracula"
 Set FontSize 13
 Set Framerate 15
+Set Width 105
+Set Height 20
 Set Margin 0
 Set PlaybackSpeed 0.8
 
 Type "./claude-cleaner --claude-dir /tmp/claude-demo"
 Enter
-Sleep 5s
+Sleep 3s
 
 Space
-Down
 Down
 Space
 Sleep 500ms
 
 Enter
-Sleep 1s
+Sleep 800ms
 
-Type "nope"
+Sleep 500ms
 Enter
-Sleep 1s
-
-Escape
-Sleep 1s
+Sleep 500ms
 
 Type "q"
