@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -58,13 +59,14 @@ func resolveClaudeDir(dir string) (string, error) {
 
 func main() {
 	var claudeDirFlag string
-	var helpFlag, versionFlag bool
+	var helpFlag, versionFlag, mockUpdateFlag bool
 
 	flag.StringVar(&claudeDirFlag, "claude-dir", "", "Custom Claude config directory")
 	flag.BoolVar(&helpFlag, "help", false, "Show help")
 	flag.BoolVar(&helpFlag, "h", false, "Show help")
 	flag.BoolVar(&versionFlag, "version", false, "Show version")
 	flag.BoolVar(&versionFlag, "v", false, "Show version")
+	flag.BoolVar(&mockUpdateFlag, "mock-update", false, "Simulate a newer version available (for testing)")
 	flag.Parse()
 
 	if versionFlag {
@@ -96,9 +98,52 @@ func main() {
 	// ~/.claude.json is one level above claudeDir (~/.claude → ~)
 	claudeJSONPath := filepath.Join(filepath.Dir(claudeDir), ".claude.json")
 
-	p := tea.NewProgram(newModel(claudeDir, claudeJSONPath, projectsDir), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	m := newModel(claudeDir, claudeJSONPath, projectsDir)
+	if mockUpdateFlag {
+		m.latestVersion = "99.0.0"
+		m.hasUpdate = true
+		m.updateChecked = true
+		m.pendingUpdatePrompt = true
+		m.skipUpdateCheck = true
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+
+	if fm, ok := finalModel.(model); ok && fm.restartAfterUpdate {
+		exe, exeErr := os.Executable()
+		if exeErr == nil && !isTempBuild(exe) {
+			// Installed binary: re-exec self without --mock-update
+			var args []string
+			for _, a := range os.Args[1:] {
+				if a != "--mock-update" {
+					args = append(args, a)
+				}
+			}
+			cmd := exec.Command(exe, args...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if cmd.Start() == nil {
+				return
+			}
+		}
+		// Fallback: dev mode (go run .) — recompile and restart
+		cmd := exec.Command("go", "run", ".")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if cmd.Start() != nil {
+			fmt.Println("Update complete. Restart with: claude-cleaner")
+		}
+	}
+}
+
+// isTempBuild returns true when running via "go run" (binary lives in a temp dir).
+func isTempBuild(exe string) bool {
+	return strings.Contains(exe, "go-build") ||
+		strings.Contains(exe, string(os.PathSeparator)+"T"+string(os.PathSeparator)) // macOS /var/folders/T/
 }

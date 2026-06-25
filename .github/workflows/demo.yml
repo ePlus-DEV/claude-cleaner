@@ -60,6 +60,7 @@ jobs:
           vhs demo/help.tape
           vhs demo/full.tape
           vhs demo/cancel.tape
+          vhs demo/update.tape
 
       # On PRs: upload as artifact for preview — cannot commit to fork branches
       - name: Upload GIFs as artifact (PR preview)

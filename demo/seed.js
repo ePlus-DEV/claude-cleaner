@@ -30,10 +30,14 @@ function assistantLine(inputTokens, outputTokens) {
   }) + "\n";
 }
 
-// Each project: path, sessions array with { turns, inputPerTurn, outputPerTurn, daysAgo }
+// Each project: path, token totals (for .claude.json), sessions array
 const projects = [
   {
     projectPath: "/home/user/my-web-app",
+    lastTotalInputTokens: 1_240_000,
+    lastTotalOutputTokens: 183_000,
+    lastTotalCacheCreationInputTokens: 820_000,
+    lastTotalCacheReadInputTokens: 4_560_000,
     sessions: [
       { turns: 8,  inputPerTurn: 18000, outputPerTurn: 3500, daysAgo: 0  },
       { turns: 12, inputPerTurn: 22000, outputPerTurn: 4200, daysAgo: 1  },
@@ -41,6 +45,10 @@ const projects = [
   },
   {
     projectPath: "/home/user/api-server",
+    lastTotalInputTokens: 2_840_000,
+    lastTotalOutputTokens: 421_000,
+    lastTotalCacheCreationInputTokens: 1_190_000,
+    lastTotalCacheReadInputTokens: 8_920_000,
     sessions: [
       { turns: 20, inputPerTurn: 28000, outputPerTurn: 5500, daysAgo: 2  },
       { turns: 15, inputPerTurn: 19000, outputPerTurn: 3800, daysAgo: 4  },
@@ -49,12 +57,20 @@ const projects = [
   },
   {
     projectPath: "/home/user/data-pipeline",
+    lastTotalInputTokens: 384_000,
+    lastTotalOutputTokens: 57_000,
+    lastTotalCacheCreationInputTokens: 198_000,
+    lastTotalCacheReadInputTokens: 1_120_000,
     sessions: [
       { turns: 5,  inputPerTurn: 9000,  outputPerTurn: 2000, daysAgo: 7  },
     ],
   },
   {
     projectPath: "/home/user/old-project",
+    lastTotalInputTokens: 4_510_000,
+    lastTotalOutputTokens: 683_000,
+    lastTotalCacheCreationInputTokens: 2_140_000,
+    lastTotalCacheReadInputTokens: 15_200_000,
     sessions: [
       { turns: 30, inputPerTurn: 32000, outputPerTurn: 6500, daysAgo: 30 },
       { turns: 25, inputPerTurn: 29000, outputPerTurn: 5800, daysAgo: 33 },
@@ -62,6 +78,10 @@ const projects = [
   },
   {
     projectPath: "/home/user/scripts",
+    lastTotalInputTokens: 96_000,
+    lastTotalOutputTokens: 14_200,
+    lastTotalCacheCreationInputTokens: 44_000,
+    lastTotalCacheReadInputTokens: 283_000,
     sessions: [
       { turns: 3,  inputPerTurn: 5500,  outputPerTurn: 1100, daysAgo: 60 },
     ],
@@ -83,6 +103,10 @@ for (const proj of projects) {
     allowedTools: [],
     hasTrustDialogAccepted: true,
     mcpServers: {},
+    lastTotalInputTokens: proj.lastTotalInputTokens,
+    lastTotalOutputTokens: proj.lastTotalOutputTokens,
+    lastTotalCacheCreationInputTokens: proj.lastTotalCacheCreationInputTokens,
+    lastTotalCacheReadInputTokens: proj.lastTotalCacheReadInputTokens,
   };
 
   for (let i = 0; i < proj.sessions.length; i++) {

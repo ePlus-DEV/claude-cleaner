@@ -61,6 +61,7 @@ type appState int
 const (
 	stateLoading appState = iota
 	stateUpdatePrompt
+	stateUpdating
 	stateList
 	stateConfirm
 	stateDeleting
@@ -131,6 +132,9 @@ type model struct {
 	sessionsReady        bool   // sessions loaded flag
 	lastScanTime         time.Time
 	rescanning           bool   // manual rescan in progress — keep list visible
+	skipUpdateCheck      bool   // true when --mock-update; ignore real npm check
+	updatePromptIdx      int    // 0 = Yes (default), 1 = No
+	restartAfterUpdate   bool
 }
 
 func newModel(claudeDir, claudeJSONPath, projectsDir string) model {
@@ -230,6 +234,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case updateCheckMsg:
+		if m.skipUpdateCheck {
+			return m, nil // mock mode — ignore real npm check
+		}
 		m.latestVersion = msg.latest
 		m.hasUpdate = msg.hasUpdate
 		m.updateChecked = true
@@ -243,9 +250,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case updateDoneMsg:
-		// npm finished — quit, user must restart to use new binary
 		if msg.err == nil {
-			fmt.Print("\n  Update complete. Please restart claude-cleaner.\n")
+			m.restartAfterUpdate = true
 		}
 		return m, tea.Quit
 
@@ -272,17 +278,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleUpdatePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y", "Y", "enter":
-		cmd := exec.Command("npm", "install", "-g", "claude-cleaner@latest")
-		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-			return updateDoneMsg{err}
-		})
+	case "left", "h", "tab":
+		m.updatePromptIdx = 0 // Yes
+	case "right", "l":
+		m.updatePromptIdx = 1 // No
+	case "y", "Y":
+		m.updatePromptIdx = 0
+		return m.doUpdate()
 	case "n", "N", "esc":
-		m.pendingUpdatePrompt = false // clear so rescan won't re-show prompt
+		m.pendingUpdatePrompt = false
+		m.state = stateList
+		return m, nil
+	case "enter":
+		if m.updatePromptIdx == 0 {
+			return m.doUpdate()
+		}
+		m.pendingUpdatePrompt = false
 		m.state = stateList
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m model) doUpdate() (tea.Model, tea.Cmd) {
+	m.state = stateUpdating
+	isMock := m.skipUpdateCheck
+	return m, tea.Batch(
+		m.spinner.Tick,
+		func() tea.Msg {
+			if isMock {
+				time.Sleep(2 * time.Second) // simulate npm install duration
+				return updateDoneMsg{nil}
+			}
+			cmd := exec.Command("npm", "install", "-g", "claude-cleaner@latest")
+			return updateDoneMsg{cmd.Run()}
+		},
+	)
 }
 
 func (m model) viewUpdatePrompt() string {
@@ -290,11 +321,17 @@ func (m model) viewUpdatePrompt() string {
 	sb.WriteString("\n")
 	sb.WriteString("  " + lipgloss.NewStyle().Foreground(clrGreen).Bold(true).Render("⬆  New version available: v"+m.latestVersion) + "\n\n")
 	sb.WriteString("  " + dimStyle.Render("Current: v"+version) + "\n\n")
-	sb.WriteString("  Update now via npm install -g claude-cleaner@latest?\n\n")
+	sb.WriteString("  Update now via " + lipgloss.NewStyle().Foreground(clrCyan).Render("npm install -g claude-cleaner@latest") + "?\n\n")
 
+	yes := dimStyle.Render("[ Y ]  Yes, update now")
 	no := dimStyle.Render("[ N ]  No, skip")
-	sb.WriteString("  " + lipgloss.NewStyle().Foreground(clrGreen).Bold(true).Render("[ Y ]  Yes, update now") + "      " + no + "\n\n")
-	sb.WriteString("  " + dimStyle.Render("y/enter update  n/esc skip"))
+	if m.updatePromptIdx == 0 {
+		yes = lipgloss.NewStyle().Foreground(clrGreen).Bold(true).Render("[ Y ]  Yes, update now")
+	} else {
+		no = lipgloss.NewStyle().Foreground(clrFg).Bold(true).Render("[ N ]  No, skip")
+	}
+	sb.WriteString("  " + yes + "      " + no + "\n\n")
+	sb.WriteString("  " + dimStyle.Render("←/→ select  enter confirm  y yes  n/esc skip"))
 	return sb.String()
 }
 
@@ -553,6 +590,10 @@ func (m model) View() string {
 	switch m.state {
 	case stateLoading:
 		body = "\n  " + m.spinner.View() + " Scanning sessions…\n"
+	case stateUpdating:
+		body = "\n  " + m.spinner.View() + " Installing " +
+			lipgloss.NewStyle().Foreground(clrCyan).Render("claude-cleaner@latest") +
+			" via npm…\n\n  " + dimStyle.Render("Please wait, this may take a moment.")
 	case stateUpdatePrompt:
 		body = m.viewUpdatePrompt()
 	case stateList:

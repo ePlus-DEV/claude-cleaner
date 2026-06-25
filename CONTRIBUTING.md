@@ -39,33 +39,77 @@ go run . --help
 go run . --claude-dir /path/to/.claude
 ```
 
+### Test the update flow
+
+```bash
+go run . --mock-update
+```
+
+Injects a fake `v99.0.0` — triggers the update prompt on startup without publishing a real release. Press `n` to skip into the list; header shows `⬆ v99.0.0 available  press u to update`.
+
 ## Tests
 
 ```bash
 go test -v ./...
+go test -v -run TestFormatTokens ./...   # run a specific test
 ```
+
+The test suite covers: TUI state transitions, all key bindings, progress bar messages, CLI detection messages, update check messages, scanner helpers (token fields, dedup, path encoding), deletion safety (`safeRemove`), and edge cases (empty list, malformed JSON, nonexistent paths).
+
+### Test helpers
+
+`model_test.go` exports two session factories:
+
+| Helper | Use |
+| --- | --- |
+| `fakeSessions(n)` | n minimal sessions — fast, for state/key tests |
+| `realisticSessions()` | 7 sessions with varied tokens, sizes, HasData flags — mirrors real data shape |
 
 ## Project structure
 
 ```
-main.go          — entry point, flag parsing, resolveClaudeDir
-scanner.go       — Session type, filesystem scanning, safeRemove, helpers
-model.go         — Bubble Tea TUI model (loading → list → confirm → deleting → done)
-scanner_test.go  — unit tests
+main.go           — entry point, flag parsing, resolveClaudeDir, --mock-update
+scanner.go        — Session type, scanning from ~/.claude.json, safeRemove,
+                    smartDelete, RunDelete, DetectClaudeCLI, formatTokens, helpers
+updater.go        — CheckLatestVersion (npm registry), semver comparison
+model.go          — Bubble Tea TUI model
+                    states: loading → updatePrompt → list → confirm → deleting → done
+                    key handlers, viewList, viewDeleting (progress bar), viewDone,
+                    renderHeader (claude CLI status, version + update badge, scanned time)
+scanner_test.go   — unit tests for scanning, tokens, dedup, deletion helpers
+model_test.go     — unit tests for all TUI states, key bindings, message handling
+updater_test.go   — unit tests for semver comparison, update message handling
 
 scripts/
-  install.js     — npm postinstall: downloads correct Go binary from GitHub Releases
-  run.js         — npm bin shim: finds and executes the downloaded binary
+  install.js      — npm postinstall: downloads correct Go binary from GitHub Releases
+  run.js          — npm bin shim: finds and executes the downloaded binary
   sync-version.js — syncs package.json version → main.go
 
 demo/
-  seed.js        — creates fake ~/.claude/projects data for VHS recordings
-  *.tape         — VHS scripts for demo GIFs
+  seed.js         — creates fake ~/.claude/projects data for VHS recordings
+  *.tape          — VHS scripts for demo GIFs
 
 .github/workflows/
-  ci.yml         — Go tests on every push / PR
-  release.yml    — GoReleaser (binaries) + npm publish (wrapper)
-  demo.yml       — regenerate demo GIFs on change
+  ci.yml          — Go tests on every push / PR
+  release.yml     — GoReleaser (binaries) + npm publish (wrapper)
+  demo.yml        — regenerate demo GIFs on change
+```
+
+### Key data flow
+
+```
+~/.claude.json  ──→  scanSessions()  ──→  []Session  ──→  model.sessions
+                      └─ token fields: lastTotalInputTokens etc.
+                      └─ deduplicateProjects (Windows path case-insensitive)
+                      └─ encodePath → ~/.claude/projects/<hash>/ for HasData/size/mtime
+
+Deletion chain (smartDelete):
+  1. exec.LookPath("claude") → claude project purge -y <path>
+  2. os.Stat(s.Path) — if still exists → safeRemove (os.RemoveAll, path-validated)
+
+All-selected optimisation:
+  RunDelete detects len(selected)==len(sessions) → claude project purge --all -y
+  → verify each folder → safeRemove remaining
 ```
 
 ## Releasing a new version

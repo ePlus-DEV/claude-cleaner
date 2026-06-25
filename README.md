@@ -20,13 +20,22 @@ Runs on Windows, macOS, and Linux. No runtime required when using a pre-built bi
 | `--help` | ![Help](demo/help.gif) |
 | Delete a session | ![Full flow](demo/full.gif) |
 | Cancel confirmation | ![Cancel](demo/cancel.gif) |
+| In-place update | ![Update](demo/update.gif) |
 
 ## Features
 
-- Finds Claude Code project sessions automatically.
-- Shows session name, last modification time, and disk usage.
-- Multi-select with `space`, select all with `a`.
-- Requires explicit `DELETE` confirmation before any deletion.
+- Reads project list from `~/.claude.json` — shows all projects Claude Code knows about, even those with no local session files.
+- Displays **token usage** per project (from `lastTotal*` fields in `~/.claude.json`), formatted as K / M / B / T / P / E.
+- Status column `●` (session files on disk) / `○` (config only, no local data).
+- Windows path dedup — `d:/foo` and `D:/foo` treated as the same project; higher-token entry wins.
+- Multi-select with `space`, select all with `a`, confirm with `enter`.
+- Three deletion modes: session-files delete, full **purge** (via `claude project purge`), and instant **force-purge** (`x`).
+- Live progress bar during deletion.
+- Claude CLI integration — tries `claude project purge` first, falls back to direct removal.
+- Auto update check against npm registry on startup; `u` to update in-place.
+- Claude CLI presence and version shown in header.
+- `r` to rescan at any time.
+- `q` quits from every screen.
 - Rejects paths outside the Claude `projects` directory.
 - Concurrent filesystem scanning.
 - Supports custom Claude configuration directories via `--claude-dir` or `CLAUDE_CONFIG_DIR`.
@@ -37,14 +46,16 @@ Only project session folders directly inside `~/.claude/projects` (or `$CLAUDE_C
 
 These folders contain Claude Code session and conversation history. Source code directories are never touched.
 
-Before deleting, the tool:
+### Deletion modes
 
-1. Lists every session with size and last modified time.
-2. Shows the exact folders selected for deletion.
-3. Requires you to type `DELETE` to confirm.
-4. Validates that all paths are inside the Claude projects directory.
+| Mode | Key | Confirm | Scope | How |
+| --- | --- | --- | --- | --- |
+| Delete | `enter` | ✓ screen | selected items | tries `claude project purge -y <path>`, falls back to `os.RemoveAll` |
+| Purge | `p` | ✓ screen | selected items | same as delete, confirm text emphasises full purge |
+| Force-purge | `x` | ✗ | cursor item only | same deletion chain, no confirm screen |
+| Delete all | `a` then `enter` | ✓ screen | all items | uses `claude project purge --all -y` (single call), then cleans remaining folders |
 
-Deleted session history cannot be restored by this tool.
+All modes validate that the target path is inside the Claude projects directory before deleting.
 
 ## Install
 
@@ -104,6 +115,7 @@ claude-cleaner --version
 
 ```text
 --claude-dir <path>   Custom Claude config directory (default: ~/.claude)
+--mock-update         Simulate a newer version available (for testing the update flow)
 -h, --help            Show help
 -v, --version         Show version
 ```
@@ -114,10 +126,14 @@ claude-cleaner --version
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Navigate list |
 | `space` | Toggle selection |
-| `a` | Select / deselect all |
-| `enter` | Confirm selection |
-| `esc` | Go back |
-| `q` / `ctrl+c` | Quit |
+| `enter` | Proceed — show delete confirm (when items selected) |
+| `a` | Select all / deselect all |
+| `p` | Purge selected (confirm screen, purge mode) |
+| `x` | Force-purge item at cursor — no confirm |
+| `r` | Rescan / refresh project list |
+| `u` | Update claude-cleaner in-place (shown when update available) |
+| `esc` | Go back / cancel |
+| `q` / `ctrl+c` | Quit (works on every screen) |
 
 ## Configure a custom Claude directory
 
@@ -149,6 +165,13 @@ claude-cleaner --claude-dir "/correct/path/.claude"
 
 ```bash
 npm install --global claude-cleaner
+```
+
+**Windows: `Access is denied` when running `go run .`** — Windows locks the temp executable while it's in use. Kill any other running instances, or build once and run the binary directly:
+
+```powershell
+go build -o claude-cleaner.exe .
+.\claude-cleaner.exe
 ```
 
 ## Development
