@@ -8,9 +8,9 @@ Claude Session Cleaner is an interactive CLI that inspects Claude Code project
 session history, displays disk usage, and safely deletes only the sessions you
 select.
 
-It runs on Windows, macOS, and Linux with Node.js 18 or newer.
+It runs on Windows, macOS, and Linux with Node.js 20 or newer.
 
-<img width="1125" height="621" alt="Claude Session Cleaner preview" src="https://github.com/user-attachments/assets/89094ee1-2a41-4aec-b47e-a14425b57d4c" />
+![Claude Session Cleaner preview](https://github.com/user-attachments/assets/89094ee1-2a41-4aec-b47e-a14425b57d4c)
 
 ## Features
 
@@ -51,7 +51,7 @@ Deleted session history cannot be restored by this tool.
 
 ## Requirements
 
-- Node.js 18, 20, 22, or newer
+- Node.js 20, 22, 24, or newer
 - npm, included with Node.js
 - A terminal that supports interactive input
 
@@ -242,7 +242,7 @@ npm run pack:dry
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs unit and smoke tests
-for Node.js 18, 20, and 22 on Windows, macOS, and Linux for pushes and pull
+for Node.js 20, 22, and 24 on Windows, macOS, and Linux for pushes and pull
 requests.
 
 ## Automated npm and GitHub release
