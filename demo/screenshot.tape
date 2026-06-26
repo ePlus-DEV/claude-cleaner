@@ -2,8 +2,7 @@ Output demo/screenshot.png
 
 Set Theme "Dracula"
 Set FontSize 16
-Set Width 120
-Set Height 32
+Set Width 140
 Set Margin 20
 Set MarginFill "#282a36"
 
