@@ -86,7 +86,7 @@ claude-cleaner --version
 ## Features
 
 - Reads project list from `~/.claude.json` — shows all projects Claude Code knows about, even those with no local session files.
-- Displays **token usage** per project (from `lastTotal*` fields in `~/.claude.json`), formatted as K / M / B / T / P / E.
+- Displays **token usage** per project — reads `lastTotal*` fields from `~/.claude.json` when available, otherwise aggregates `message.usage` from session `.jsonl` files. Formatted as K / M / B / T / P / E.
 - Status column `●` (session files on disk) / `○` (config only, no local data).
 - Windows path dedup — `d:/foo` and `D:/foo` treated as the same project; higher-token entry wins.
 - Multi-select with `space`, select all with `a`, confirm with `enter`.
@@ -100,6 +100,40 @@ claude-cleaner --version
 - Rejects paths outside the Claude `projects` directory.
 - Concurrent filesystem scanning.
 - Supports custom Claude configuration directories via `--claude-dir` or `CLAUDE_CONFIG_DIR`.
+
+## How it works
+
+### Session discovery
+
+```mermaid
+flowchart TD
+    A([Start scan]) --> B{"~/.claude.json\nexists?"}
+    B -- Yes --> C{"Has projects\nmap?"}
+    B -- No / unreadable --> D[scanFromDir\nenumerate subdirs]
+    C -- Yes --> E[deduplicateProjects\ncase-insensitive merge]
+    C -- "No / malformed" --> D
+    E --> F[["For each project path\n(concurrent goroutines)"]]
+    D --> F
+    F --> G["encodePath → dir name\ne.g. d--laragon-www-g-front"]
+    G --> H["projectStats\nsize + mtime"]
+    H --> I[Resolve tokens]
+    I --> J([Session list])
+```
+
+### Token resolution
+
+```mermaid
+flowchart TD
+    A([Project entry]) --> B{"claude.json has\nlastTotal* fields?"}
+    B -- Yes --> C["Sum all 4 fields\ninput + output +\ncache_creation +\ncache_read"]
+    B -- No --> D["Scan .jsonl files\nbufio line-by-line"]
+    D --> E{"assistant message\nwith usage found?"}
+    E -- Yes --> F["Sum tokens\nacross all sessions"]
+    E -- No --> G(["HasTokenData = false\nDisplay —"])
+    C --> H(["HasTokenData = true"])
+    F --> H
+    H --> I["formatTokens\n→ 108.6K / 9.9M / ..."]
+```
 
 ## What it deletes
 

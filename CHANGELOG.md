@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Token column now falls back to summing `message.usage` from session `.jsonl` files when `~/.claude.json` does not contain `lastTotal*` token fields (common on newer Claude Code installs).
+- UI Project column shows only the last folder name (e.g. `g-front`) instead of the full path; full path is still used internally for correct deletion.
 - Bumped minimum Go version to 1.25 (go.mod).
 - Updated CI matrix to Go 1.25 / 1.26 across Windows, macOS, and Linux.
 - Updated all workflows (ci, demo, release) to Go 1.25.

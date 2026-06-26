@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ type Session struct {
 	Modified     time.Time
 	Size         int64
 	TotalTokens  int64
-	HasTokenData bool // false = token fields absent in ~/.claude.json (show "—")
+	HasTokenData bool // false = no token data in ~/.claude.json or session .jsonl files (show "—")
 	HasData      bool // false = directory absent or empty (no session files found)
 }
 
@@ -54,6 +55,56 @@ func (e projectEntry) hasAnyField() bool {
 		e.LastTotalOutputTokens != nil ||
 		e.LastTotalCacheCreationInputTokens != nil ||
 		e.LastTotalCacheReadInputTokens != nil
+}
+
+// jsonlTokens holds just the four token fields from message.usage in a .jsonl line.
+type jsonlTokens struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+}
+
+// scanProjectTokens sums token usage from all top-level .jsonl session files in
+// dirPath. Returns (total, hasData); hasData is true when at least one usage
+// record was found.
+func scanProjectTokens(dirPath string) (int64, bool) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return 0, false
+	}
+	var total int64
+	var hasData bool
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		f, err := os.Open(filepath.Join(dirPath, e.Name()))
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 1<<20), 1<<20) // 1 MB per line – handles large tool outputs
+		for sc.Scan() {
+			var row struct {
+				Type    string `json:"type"`
+				Message struct {
+					Usage *jsonlTokens `json:"usage"`
+				} `json:"message"`
+			}
+			if json.Unmarshal(sc.Bytes(), &row) != nil {
+				continue
+			}
+			if row.Type != "assistant" || row.Message.Usage == nil {
+				continue
+			}
+			u := row.Message.Usage
+			total += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+			hasData = true
+		}
+		f.Close()
+	}
+	return total, hasData
 }
 
 // normalizePath lowercases and normalises separators so Windows paths are
@@ -147,14 +198,19 @@ func scanSessions(claudeJSONPath, projectsDir string) ([]Session, error) {
 			dirPath := filepath.Join(projectsDir, encoded)
 			size, modified := projectStats(dirPath)
 
+			totalTokens := e.total()
+			hasTokenData := e.hasAnyField()
+			if !hasTokenData {
+				totalTokens, hasTokenData = scanProjectTokens(dirPath)
+			}
 			ch <- Session{
 				Name:         encoded,
 				Path:         dirPath,
 				ProjectPath:  projPath,
 				Modified:     modified,
 				Size:         size,
-				TotalTokens:  e.total(),
-				HasTokenData: e.hasAnyField(),
+				TotalTokens:  totalTokens,
+				HasTokenData: hasTokenData,
 				HasData:      !modified.IsZero(),
 			}
 		}(projectPath, entry)
@@ -179,7 +235,7 @@ func scanSessions(claudeJSONPath, projectsDir string) ([]Session, error) {
 }
 
 // scanFromDir is the fallback: enumerate subdirectories of projectsDir directly.
-// Token data is unavailable without ~/.claude.json.
+// Token data is read from .jsonl session files since ~/.claude.json is absent.
 func scanFromDir(projectsDir string) ([]Session, error) {
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
@@ -198,12 +254,15 @@ func scanFromDir(projectsDir string) ([]Session, error) {
 			defer wg.Done()
 			dirPath := filepath.Join(projectsDir, e.Name())
 			size, modified := projectStats(dirPath)
+			totalTokens, hasTokenData := scanProjectTokens(dirPath)
 			ch <- Session{
-				Name:     e.Name(),
-				Path:     dirPath,
-				Modified: modified,
-				Size:     size,
-				HasData:  !modified.IsZero(),
+				Name:         e.Name(),
+				Path:         dirPath,
+				Modified:     modified,
+				Size:         size,
+				TotalTokens:  totalTokens,
+				HasTokenData: hasTokenData,
+				HasData:      !modified.IsZero(),
 			}
 		}(entry)
 	}
