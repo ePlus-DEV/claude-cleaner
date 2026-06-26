@@ -63,6 +63,7 @@ claude-cleaner --version
 
 ```text
 --claude-dir <path>   Custom Claude config directory (default: ~/.claude)
+--mock-update         Simulate a newer version available (for testing the update flow)
 -h, --help            Show help
 -v, --version         Show version
 ```
