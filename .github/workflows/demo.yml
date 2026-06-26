@@ -137,11 +137,13 @@ jobs:
           full_markdown="$(publish_markdown demo/full.gif)"
           cancel_markdown="$(publish_markdown demo/cancel.gif)"
           update_markdown="$(publish_markdown demo/update.gif)"
+          screenshot_markdown="$(publish_markdown demo/screenshot.gif)"
 
           set_output help "$help_markdown"
           set_output full "$full_markdown"
           set_output cancel "$cancel_markdown"
           set_output update "$update_markdown"
+          set_output screenshot "$screenshot_markdown"
 
       - name: Comment demo GIF preview on PR
         if: github.event_name == 'pull_request'
@@ -151,6 +153,7 @@ jobs:
           FULL_GIF: ${{ steps.publish-gifs.outputs.full }}
           CANCEL_GIF: ${{ steps.publish-gifs.outputs.cancel }}
           UPDATE_GIF: ${{ steps.publish-gifs.outputs.update }}
+          SCREENSHOT_GIF: ${{ steps.publish-gifs.outputs.screenshot }}
         with:
           script: |
             const marker = '<!-- claude-cleaner-demo-gifs -->';
@@ -159,6 +162,9 @@ jobs:
               '## Latest terminal demo GIFs',
               '',
               'The newest generated terminal GIFs for this pull request are shown below:',
+              '',
+              '### Screenshot',
+              process.env.SCREENSHOT_GIF,
               '',
               '### Help',
               process.env.HELP_GIF,

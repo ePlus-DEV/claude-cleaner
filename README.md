@@ -170,6 +170,8 @@ claude-cleaner
 
 ## Demos
 
+![Screenshot](demo/screenshot.png)
+
 | Scenario | Preview |
 | --- | --- |
 | `--help` | ![Help](demo/help.gif) |
