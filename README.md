@@ -13,14 +13,73 @@ Runs on Windows, macOS, and Linux. No runtime required when using a pre-built bi
 
 ![Full demo](demo/full.gif)
 
-## Demos
+## Install
 
-| Scenario | Preview |
+### Run without installing
+
+```bash
+npx claude-cleaner
+```
+
+### npm (global)
+
+```bash
+npm install --global claude-cleaner
+claude-cleaner
+```
+
+> The npm package is a thin wrapper. On install it automatically downloads the correct pre-built binary for your platform from GitHub Releases. No Go required.
+
+### Download binary
+
+Go to [Releases](https://github.com/ePlus-DEV/claude-cleaner/releases), download the archive for your platform, extract, and run.
+
+| Platform | File |
 | --- | --- |
-| `--help` | ![Help](demo/help.gif) |
-| Delete a session | ![Full flow](demo/full.gif) |
-| Cancel confirmation | ![Cancel](demo/cancel.gif) |
-| In-place update | ![Update](demo/update.gif) |
+| Linux x64 | `claude-cleaner_*_linux_amd64.tar.gz` |
+| Linux ARM64 | `claude-cleaner_*_linux_arm64.tar.gz` |
+| macOS x64 | `claude-cleaner_*_darwin_amd64.tar.gz` |
+| macOS Apple Silicon | `claude-cleaner_*_darwin_arm64.tar.gz` |
+| Windows x64 | `claude-cleaner_*_windows_amd64.zip` |
+| Windows ARM64 | `claude-cleaner_*_windows_arm64.zip` |
+
+### Go
+
+```bash
+go install github.com/ePlus-DEV/claude-cleaner@latest
+```
+
+## Usage
+
+```bash
+claude-cleaner
+claude-cleaner --claude-dir "/path/to/.claude"
+claude-cleaner --help
+claude-cleaner --version
+```
+
+### Options
+
+```text
+--claude-dir <path>   Custom Claude config directory (default: ~/.claude)
+-h, --help            Show help
+-v, --version         Show version
+```
+
+### Key bindings
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` or `j` / `k` | Navigate list |
+| `space` | Toggle selection |
+| `enter` | Proceed — show delete confirm (when items selected) |
+| `a` | Select all / deselect all |
+| `p` | Purge selected (confirm screen, purge mode) |
+| `x` | Force-purge item at cursor — no confirm |
+| `r` | Rescan / refresh project list |
+| `u` | Update claude-cleaner in-place (shown when update available) |
+| `esc` | Go back / cancel |
+| `q` / `ctrl+c` | Quit (works on every screen) |
 
 ## Features
 
@@ -57,84 +116,6 @@ These folders contain Claude Code session and conversation history. Source code 
 
 All modes validate that the target path is inside the Claude projects directory before deleting.
 
-## Install
-
-### Run without installing
-
-```bash
-npx claude-cleaner
-```
-
-### Install globally
-
-```bash
-npm install --global claude-cleaner
-claude-cleaner
-```
-
-> The npm package is a thin wrapper. On install it automatically downloads the correct pre-built binary for your platform from GitHub Releases. No Go required.
-
-### Download binary directly
-
-Go to [Releases](https://github.com/ePlus-DEV/claude-cleaner/releases), download the archive for your platform, extract, and run.
-
-| Platform | File |
-| --- | --- |
-| Linux x64 | `claude-cleaner_*_linux_amd64.tar.gz` |
-| Linux ARM64 | `claude-cleaner_*_linux_arm64.tar.gz` |
-| macOS x64 | `claude-cleaner_*_darwin_amd64.tar.gz` |
-| macOS Apple Silicon | `claude-cleaner_*_darwin_arm64.tar.gz` |
-| Windows x64 | `claude-cleaner_*_windows_amd64.zip` |
-| Windows ARM64 | `claude-cleaner_*_windows_arm64.zip` |
-
-### Install with Go
-
-```bash
-go install github.com/ePlus-DEV/claude-cleaner@latest
-```
-
-### Build from source
-
-```bash
-git clone https://github.com/ePlus-DEV/claude-cleaner.git
-cd claude-cleaner
-go build -o claude-cleaner .
-./claude-cleaner
-```
-
-## Usage
-
-```bash
-claude-cleaner
-claude-cleaner --claude-dir "/path/to/.claude"
-claude-cleaner --help
-claude-cleaner --version
-```
-
-### Options
-
-```text
---claude-dir <path>   Custom Claude config directory (default: ~/.claude)
---mock-update         Simulate a newer version available (for testing the update flow)
--h, --help            Show help
--v, --version         Show version
-```
-
-### Key bindings
-
-| Key | Action |
-| --- | --- |
-| `↑` / `↓` or `j` / `k` | Navigate list |
-| `space` | Toggle selection |
-| `enter` | Proceed — show delete confirm (when items selected) |
-| `a` | Select all / deselect all |
-| `p` | Purge selected (confirm screen, purge mode) |
-| `x` | Force-purge item at cursor — no confirm |
-| `r` | Rescan / refresh project list |
-| `u` | Update claude-cleaner in-place (shown when update available) |
-| `esc` | Go back / cancel |
-| `q` / `ctrl+c` | Quit (works on every screen) |
-
 ## Configure a custom Claude directory
 
 Priority order: `--claude-dir` > `CLAUDE_CONFIG_DIR` > `~/.claude`
@@ -150,6 +131,15 @@ claude-cleaner
 $env:CLAUDE_CONFIG_DIR = "D:\ClaudeData"
 claude-cleaner
 ```
+
+## Demos
+
+| Scenario | Preview |
+| --- | --- |
+| `--help` | ![Help](demo/help.gif) |
+| Delete a session | ![Full flow](demo/full.gif) |
+| Cancel confirmation | ![Cancel](demo/cancel.gif) |
+| In-place update | ![Update](demo/update.gif) |
 
 ## Troubleshooting
 
@@ -174,71 +164,9 @@ go build -o claude-cleaner.exe .
 .\claude-cleaner.exe
 ```
 
-## Development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full setup, build, and release instructions.
-
-### Requirements
-
-- [Go 1.22+](https://go.dev/dl/)
-- [Node.js 20+](https://nodejs.org/) (only for seed data / demo GIFs)
-
-### Quick start
-
-```bash
-git clone https://github.com/ePlus-DEV/claude-cleaner.git
-cd claude-cleaner
-go mod tidy
-```
-
-### Run in dev (without installing Claude)
-
-Use the included seed script to create fake session data for testing:
-
-```bash
-# macOS / Linux
-node demo/seed.js /tmp/claude-demo
-go run . --claude-dir /tmp/claude-demo
-```
-
-```powershell
-# Windows
-node demo/seed.js $env:TEMP\claude-demo
-go run . --claude-dir $env:TEMP\claude-demo
-```
-
-This creates 5 fake project sessions of various sizes — enough to test all TUI flows (navigate, select, delete, cancel) without touching any real Claude data.
-
-### Common commands
-
-```bash
-go mod tidy          # install / tidy dependencies
-go build -o claude-cleaner .  # build binary
-go run .             # run without building
-go test -v ./...     # run tests
-go run . --version   # smoke test
-```
-
-## CI / CD
-
-| Workflow | Trigger | What it does |
-| --- | --- | --- |
-| [ci.yml](.github/workflows/ci.yml) | push / PR | Go tests on 1.22, 1.23, 1.24 × Windows, macOS, Linux |
-| [release.yml](.github/workflows/release.yml) | push `v*` tag | GoReleaser builds binaries → GitHub Release → npm publish |
-| [demo.yml](.github/workflows/demo.yml) | push to main (Go / tape files) | Regenerates demo GIFs via VHS |
-
-### Publishing a release
-
-```bash
-npm version patch     # or minor / major
-git push --follow-tags
-```
-
-`npm version` automatically syncs the version to `main.go` and creates a git tag. Pushing the tag triggers GoReleaser and npm publish.
-
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, build, test, and release instructions.
 
 ## License
 

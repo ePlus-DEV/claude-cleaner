@@ -47,6 +47,32 @@ go run . --mock-update
 
 Injects a fake `v99.0.0` — triggers the update prompt on startup without publishing a real release. Press `n` to skip into the list; header shows `⬆ v99.0.0 available  press u to update`.
 
+## Run with fake data (no real Claude install needed)
+
+Use the included seed script to create fake session data:
+
+```bash
+# macOS / Linux
+node demo/seed.js /tmp/claude-demo
+go run . --claude-dir /tmp/claude-demo
+```
+
+```powershell
+# Windows
+node demo/seed.js $env:TEMP\claude-demo
+go run . --claude-dir $env:TEMP\claude-demo
+```
+
+Creates 5 fake project sessions of various sizes — enough to test all TUI flows (navigate, select, delete, cancel) without touching real Claude data.
+
+### Simulate an update prompt
+
+```bash
+go run . --mock-update
+```
+
+Injects fake `v99.0.0` — triggers the update prompt on startup. Press `n` to skip into the list.
+
 ## Tests
 
 ```bash
