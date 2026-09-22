@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -599,5 +600,158 @@ func TestPurgeProjectAlreadyGone(t *testing.T) {
 	s := Session{Index: 1, Name: "gone", Path: filepath.Join(projectsDir, "gone"), ProjectPath: ""}
 	if err := purgeProject(s, projectsDir); err != nil {
 		t.Errorf("purgeProject on nonexistent path should succeed: %v", err)
+	}
+}
+
+
+func TestScanProjectSessions(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "aaa.jsonl")
+	second := filepath.Join(dir, "bbb.jsonl")
+
+	firstData := "" +
+		`{"type":"user","message":{"content":"hello"}}` + "\n" +
+		`{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":20,"cache_read_input_tokens":10}}}` + "\n"
+	secondData := `{"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+
+	if err := os.WriteFile(first, []byte(firstData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte(secondData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(first, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(second, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := scanProjectSessions(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("want 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].ID != "bbb" {
+		t.Fatalf("newest session should be first, got %q", sessions[0].ID)
+	}
+	if sessions[1].TotalTokens != 180 {
+		t.Fatalf("aaa tokens want 180, got %d", sessions[1].TotalTokens)
+	}
+	if sessions[1].MessageCount != 2 {
+		t.Fatalf("aaa messages want 2, got %d", sessions[1].MessageCount)
+	}
+}
+
+func TestSafeRemoveSessionFile(t *testing.T) {
+	projectDir := t.TempDir()
+	direct := filepath.Join(projectDir, "session.jsonl")
+	if err := os.WriteFile(direct, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeRemoveSessionFile(projectDir, direct); err != nil {
+		t.Fatalf("direct JSONL should be removable: %v", err)
+	}
+	if _, err := os.Stat(direct); !os.IsNotExist(err) {
+		t.Fatal("direct JSONL should be gone")
+	}
+
+	nested := filepath.Join(projectDir, "nested", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(nested), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeRemoveSessionFile(projectDir, nested); err == nil {
+		t.Fatal("nested session path should be rejected")
+	}
+
+	notJSONL := filepath.Join(projectDir, "notes.txt")
+	if err := os.WriteFile(notJSONL, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeRemoveSessionFile(projectDir, notJSONL); err == nil {
+		t.Fatal("non-JSONL file should be rejected")
+	}
+}
+
+func TestForgetProjectRemovesClaudeDataOnly(t *testing.T) {
+	root := t.TempDir()
+	projectsDir := filepath.Join(root, ".claude", "projects")
+	if err := os.MkdirAll(projectsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	sourceDir := filepath.Join(root, "source", "my-project")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFile := filepath.Join(sourceDir, "keep.txt")
+	if err := os.WriteFile(sourceFile, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionDir := filepath.Join(projectsDir, encodePath(sourceDir))
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	otherProject := filepath.Join(root, "source", "other")
+	config := map[string]any{
+		"theme": "dark",
+		"projects": map[string]any{
+			sourceDir:    map[string]any{"lastTotalInputTokens": 1},
+			otherProject: map[string]any{},
+		},
+	}
+	data, _ := json.Marshal(config)
+	jsonPath := filepath.Join(root, ".claude.json")
+	if err := os.WriteFile(jsonPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	project := Session{
+		Name:        encodePath(sourceDir),
+		Path:        sessionDir,
+		ProjectPath: sourceDir,
+	}
+	if err := forgetProject(project, projectsDir, jsonPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
+		t.Fatal("Claude session directory should be removed")
+	}
+	if _, err := os.Stat(sourceFile); err != nil {
+		t.Fatalf("source project must remain untouched: %v", err)
+	}
+
+	updated, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rootJSON map[string]json.RawMessage
+	if err := json.Unmarshal(updated, &rootJSON); err != nil {
+		t.Fatal(err)
+	}
+	var projects map[string]json.RawMessage
+	if err := json.Unmarshal(rootJSON["projects"], &projects); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := projects[sourceDir]; ok {
+		t.Fatal("forgotten project entry should be removed")
+	}
+	if _, ok := projects[otherProject]; !ok {
+		t.Fatal("unrelated project entry should be preserved")
+	}
+	if _, ok := rootJSON["theme"]; !ok {
+		t.Fatal("unrelated root config should be preserved")
 	}
 }
