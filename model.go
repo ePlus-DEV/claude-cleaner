@@ -922,6 +922,10 @@ func (m model) doCategoryClean() (tea.Model, tea.Cmd) {
 	cats := make([]Category, len(m.categories))
 	copy(cats, m.categories)
 	claudeDir := m.claudeDir
+	protected := make(map[string]bool, len(m.protected))
+	for key, value := range m.protected {
+		protected[key] = value
+	}
 
 	return m, tea.Batch(
 		m.spinner.Tick,
@@ -931,7 +935,13 @@ func (m model) doCategoryClean() (tea.Model, tea.Cmd) {
 				if !selected[cat.Key] {
 					continue
 				}
-				if err := cleanCategory(cat, claudeDir); err != nil {
+				var err error
+				if cat.Key == "json-orphans" {
+				err = cleanOrphanEntriesExcept(cat.Path, protected)
+				} else {
+					err = cleanCategory(cat, claudeDir)
+				}
+				if err != nil {
 					failed = append(failed, cat.Label)
 				} else {
 					cleaned = append(cleaned, cat.Label)
