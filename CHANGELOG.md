@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed Delete vs Purge semantics: normal Delete now removes only Claude session-history directories and never invokes `claude project purge`; explicit Purge/Force-purge retain Claude CLI integration.
+- Token aggregation now handles JSONL lines larger than 1 MB without silently truncating the scan.
+- Category cleanup now measures nested files recursively so previewed reclaimable size matches the cleanup scope.
+- Plugin cleanup is limited to `~/.claude/plugins/cache` and preserves plugin installation/marketplace state.
+- Config-backup cleanup now reports file-removal failures instead of silently succeeding.
 - Token column now falls back to summing `message.usage` from session `.jsonl` files when `~/.claude.json` does not contain `lastTotal*` token fields (common on newer Claude Code installs).
 - UI Project column shows only the last folder name (e.g. `g-front`) instead of the full path; full path is still used internally for correct deletion.
 - Bumped minimum Go version to 1.25 (go.mod).
