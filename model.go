@@ -1019,16 +1019,13 @@ func (m model) startProjectOperation(purge bool) (tea.Model, tea.Cmd) {
 	m.state = stateDeleting
 
 	snap := make(map[int]bool, len(m.selected))
-	for k, v := range m.selected {
-		snap[k] = v
-	}
-
-	total := 0
-	for _, v := range snap {
-		if v {
-			total++
+	for _, project := range m.sessions {
+		if m.selected[project.Index] && !m.isProtected(project) {
+			snap[project.Index] = true
 		}
 	}
+
+	total := len(snap)
 	m.deleteTotal = total
 	m.deleteProgress = 0
 	m.deleteSelectedSnap = snap
@@ -1174,7 +1171,9 @@ func (m model) viewHelp() string {
 	sb.WriteString(row("n", "Unselect all"))
 	sb.WriteString(row("o", "Select all orphaned projects (○)"))
 	sb.WriteString(row("d", "Reset sort / filter / search / selection"))
-	sb.WriteString(row("enter", "Confirm delete (when items selected)"))
+	sb.WriteString(row("enter", "Open project detail, or delete selected projects"))
+	sb.WriteString(row("l", "Lock / unlock protected project"))
+	sb.WriteString(row("X", "Forget project data + Claude metadata"))
 	sb.WriteString(row("p", "Purge mode (full claude project purge)"))
 	sb.WriteString(row("x", "Force-purge at cursor — no confirm"))
 	sb.WriteString("\n")
@@ -1275,8 +1274,8 @@ func (m model) viewList() string {
 	sb.WriteString(dimStyle.Render("  "+strings.Repeat("─", nameW+sessionsW+timeW+tokensW+sizeW+20)) + "\n")
 
 	rowW := m.width
-	if rowW < 82 {
-		rowW = 82
+	if rowW < 100 {
+		rowW = 100
 	}
 
 	for i, s := range sessions {
