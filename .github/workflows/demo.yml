@@ -8,11 +8,13 @@ on:
       - "*.go"
       - demo/*.tape
       - demo/seed.js
+      - ".github/workflows/demo.yml"
   pull_request:
     paths:
       - "*.go"
       - demo/*.tape
       - demo/seed.js
+      - ".github/workflows/demo.yml"
   workflow_dispatch:
 
 permissions:
@@ -109,31 +111,44 @@ jobs:
 
           publish_markdown() {
             local file="$1"
-            local output
-            local markdown
-            local url
+            local output=""
+            local markdown=""
+            local url=""
+            local attempt
 
-            if ! output="$(vhs publish "$file" 2>&1)"; then
-              printf '%s\n' "$output"
-              return 1
-            fi
+            for attempt in 1 2 3; do
+              echo "Publishing $file to vhs.charm.sh (attempt $attempt/3)..." >&2
 
-            markdown="$(printf '%s\n' "$output" | sed -n 's/^[[:space:]]*//; /^!\[.*\](https:\/\/vhs\.charm\.sh\/.*\.gif)$/p' | head -n 1)"
+              if output="$(vhs publish "$file" 2>&1)"; then
+                markdown="$(printf '%s\n' "$output" | sed -n 's/^[[:space:]]*//; /^!\[.*\](https:\/\/vhs\.charm\.sh\/.*\.gif)$/p' | head -n 1)"
 
-            if [ -z "$markdown" ]; then
-              url="$(printf '%s\n' "$output" | sed -n 's#.*\(https://vhs\.charm\.sh/[^ )]*\.gif\).*#\1#p' | head -n 1)"
-              if [ -n "$url" ]; then
-                markdown="![Made with VHS]($url)"
+                if [ -z "$markdown" ]; then
+                  url="$(printf '%s\n' "$output" | sed -n 's#.*\(https://vhs\.charm\.sh/[^ )]*\.gif\).*#\1#p' | head -n 1)"
+                  if [ -n "$url" ]; then
+                    markdown="![Made with VHS]($url)"
+                  fi
+                fi
+
+                if [ -n "$markdown" ]; then
+                  printf '%s\n' "$markdown"
+                  return 0
+                fi
+
+                echo "VHS publish succeeded but no preview URL was found:" >&2
+                printf '%s\n' "$output" >&2
+              else
+                echo "VHS publish failed for $file:" >&2
+                printf '%s\n' "$output" >&2
               fi
-            fi
 
-            if [ -z "$markdown" ]; then
-              printf 'Could not find a VHS markdown image or GIF URL in publish output for %s.\n' "$file"
-              printf '%s\n' "$output"
-              return 1
-            fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 3))
+              fi
+            done
 
-            printf '%s\n' "$markdown"
+            echo "Inline preview unavailable for $file; the workflow artifact will be used as fallback." >&2
+            printf '%s\n' ""
+            return 0
           }
 
           help_markdown="$(publish_markdown demo/help.gif)"
@@ -164,6 +179,10 @@ jobs:
         with:
           script: |
             const marker = '<!-- claude-cleaner-demo-gifs -->';
+            const artifactFallback = (label) =>
+              `_Inline preview unavailable. [Download the generated GIF artifact](${process.env.ARTIFACT_URL}) to view ${label}._`;
+            const preview = (value, label) => value?.trim() || artifactFallback(label);
+
             const body = [
               marker,
               '## Latest terminal demo GIFs',
@@ -171,22 +190,24 @@ jobs:
               'The newest generated terminal GIFs for this pull request are shown below:',
               '',
               '### v1.3 Project & Session Manager',
-              process.env.SESSION_MANAGER_GIF,
+              preview(process.env.SESSION_MANAGER_GIF, 'this demo'),
               '',
               '### Search, sort, filter, category',
-              process.env.FEATURES_GIF,
+              preview(process.env.FEATURES_GIF, 'this demo'),
               '',
               '### Help',
-              process.env.HELP_GIF,
+              preview(process.env.HELP_GIF, 'this demo'),
               '',
               '### Full cleanup flow',
-              process.env.FULL_GIF,
+              preview(process.env.FULL_GIF, 'this demo'),
               '',
               '### Cancel flow',
-              process.env.CANCEL_GIF,
+              preview(process.env.CANCEL_GIF, 'this demo'),
               '',
               '### Update flow',
-              process.env.UPDATE_GIF,
+              preview(process.env.UPDATE_GIF, 'this demo'),
+              '',
+              `Artifact fallback: ${process.env.ARTIFACT_URL}`,
             ].join('\n');
 
             const { owner, repo } = context.repo;
