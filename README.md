@@ -65,6 +65,7 @@ claude-cleaner --version
 
 ```text
 --claude-dir <path>   Custom Claude config directory (default: ~/.claude)
+--dry-run             Preview deletions without modifying any files
 --mock-update         Simulate a newer version available (for testing the update flow)
 -h, --help            Show help
 -v, --version         Show version
@@ -75,14 +76,23 @@ claude-cleaner --version
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Navigate list |
+| `g` / `G` | Jump to top / bottom |
 | `space` | Toggle selection |
-| `enter` | Proceed — show delete confirm (when items selected) |
-| `a` | Select all / deselect all |
-| `p` | Purge selected (confirm screen, purge mode) |
+| `a` | Select / deselect all visible items |
+| `n` | Unselect all |
+| `o` | Select orphaned projects only |
+| `enter` | Delete selected session-history directories (confirm screen) |
+| `p` | Full purge selected projects through Claude CLI when available |
 | `x` | Force-purge item at cursor — no confirm |
+| `s` | Cycle sort: recent / size / tokens / name |
+| `f` | Cycle filter: all / has data / orphaned |
+| `e` | Cycle expiry filter: off / 7 / 14 / 30 / 60 / 90 days |
+| `/` | Search by project name or path |
+| `c` | Open category cleanup |
 | `r` | Rescan / refresh project list |
 | `u` | Update claude-cleaner in-place (shown when update available) |
-| `esc` | Go back / cancel |
+| `?` | Show key bindings |
+| `esc` | Go back / clear search and filters / cancel |
 | `q` / `ctrl+c` | Quit (works on every screen) |
 
 ## Features
@@ -92,9 +102,12 @@ claude-cleaner --version
 - Status column `●` (session files on disk) / `○` (config only, no local data).
 - Windows path dedup — `d:/foo` and `D:/foo` treated as the same project; higher-token entry wins.
 - Multi-select with `space`, select all with `a`, confirm with `enter`.
-- Three deletion modes: session-files delete, full **purge** (via `claude project purge`), and instant **force-purge** (`x`).
+- Separate deletion backends: normal **Delete** removes only the selected Claude session-history directory; **Purge** uses `claude project purge` when available and falls back to session-directory removal.
+- `--dry-run` previews exactly which projects/categories would be cleaned without touching files.
+- Search, sort, orphan filters, and age/expiry filters for large project lists.
+- Category cleanup for disposable Claude data such as debug logs, telemetry, history, backups, and plugin **cache** while preserving plugin installation state.
 - Live progress bar during deletion.
-- Claude CLI integration — tries `claude project purge` first, falls back to direct removal.
+- Claude CLI integration is used only for explicit purge operations.
 - Auto update check against npm registry on startup; `u` to update in-place.
 - Claude CLI presence and version shown in header.
 - `r` to rescan at any time.
@@ -113,10 +126,11 @@ These folders contain Claude Code session and conversation history. Source code 
 
 | Mode | Key | Confirm | Scope | How |
 | --- | --- | --- | --- | --- |
-| Delete | `enter` | ✓ screen | selected items | tries `claude project purge -y <path>`, falls back to `os.RemoveAll` |
-| Purge | `p` | ✓ screen | selected items | same as delete, confirm text emphasises full purge |
-| Force-purge | `x` | ✗ | cursor item only | same deletion chain, no confirm screen |
-| Delete all | `a` then `enter` | ✓ screen | all items | uses `claude project purge --all -y` (single call), then cleans remaining folders |
+| Delete | `enter` | ✓ screen | selected items | removes only the matching directory under `~/.claude/projects`; never invokes `claude project purge` |
+| Purge | `p` | ✓ screen | selected items | runs `claude project purge -y <path>` when available; falls back to the matching session directory |
+| Force-purge | `x` | ✗ | cursor item only | same purge chain as `p`, without a confirm screen |
+| Delete all | `a` then `enter` | ✓ screen | all visible/selected items | deletes selected session directories individually; does not call `purge --all` |
+| Purge all | `a` then `p` | ✓ screen | all projects | may use `claude project purge --all -y` for efficiency |
 
 All modes validate that the target path is inside the Claude projects directory before deleting.
 
