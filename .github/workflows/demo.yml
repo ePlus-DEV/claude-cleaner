@@ -79,6 +79,7 @@ jobs:
           vhs demo/cancel.tape
           vhs demo/update.tape
           vhs demo/features.tape
+          vhs demo/session-manager.tape
 
       # On PRs: upload as artifact for preview — cannot commit to fork branches
       - name: Upload GIFs as artifact (PR preview)
@@ -140,12 +141,14 @@ jobs:
           cancel_markdown="$(publish_markdown demo/cancel.gif)"
           update_markdown="$(publish_markdown demo/update.gif)"
           features_markdown="$(publish_markdown demo/features.gif)"
+          session_manager_markdown="$(publish_markdown demo/session-manager.gif)"
 
           set_output help "$help_markdown"
           set_output full "$full_markdown"
           set_output cancel "$cancel_markdown"
           set_output update "$update_markdown"
           set_output features "$features_markdown"
+          set_output session_manager "$session_manager_markdown"
 
       - name: Comment demo GIF preview on PR
         if: github.event_name == 'pull_request'
@@ -156,6 +159,7 @@ jobs:
           CANCEL_GIF: ${{ steps.publish-gifs.outputs.cancel }}
           UPDATE_GIF: ${{ steps.publish-gifs.outputs.update }}
           FEATURES_GIF: ${{ steps.publish-gifs.outputs.features }}
+          SESSION_MANAGER_GIF: ${{ steps.publish-gifs.outputs.session_manager }}
           ARTIFACT_URL: ${{ steps.upload-gifs.outputs.artifact-url }}
         with:
           script: |
@@ -165,6 +169,9 @@ jobs:
               '## Latest terminal demo GIFs',
               '',
               'The newest generated terminal GIFs for this pull request are shown below:',
+              '',
+              '### v1.3 Project & Session Manager',
+              process.env.SESSION_MANAGER_GIF,
               '',
               '### Search, sort, filter, category',
               process.env.FEATURES_GIF,
