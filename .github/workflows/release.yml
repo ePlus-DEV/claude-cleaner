@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: claude-cleaner-release-${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+  group: claude-cleaner-release
   cancel-in-progress: false
 
 jobs:
