@@ -146,15 +146,18 @@ npm version minor
 npm version major
 ```
 
-Then push with tags:
+Open a release PR containing the version bump and changelog update, then merge it into `main`.
 
-```bash
-git push --follow-tags
-```
+No manual tag is required. When `package.json` changes on `main`, the Release workflow:
 
-GitHub Actions will:
-1. Build cross-platform Go binaries via GoReleaser → create GitHub Release
-2. Publish the npm wrapper (needs `NPM_TOKEN` secret)
+1. Verifies `package.json` and `main.go` have the same version.
+2. Creates `v<version>` automatically when the tag does not exist.
+3. Builds cross-platform Go binaries with GoReleaser and creates the GitHub Release.
+4. Publishes the npm wrapper when that exact version is not already on npm.
+
+The workflow is safe to rerun: existing tags, GitHub Releases, and npm versions are detected and reused/skipped. Manual execution with an existing tag is still supported from GitHub Actions.
+
+npm publishing currently uses the repository `NPM_TOKEN` secret.
 
 ## Submitting changes
 
