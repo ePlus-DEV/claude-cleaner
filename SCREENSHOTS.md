@@ -9,7 +9,8 @@
 | Scenario | Preview |
 | --- | --- |
 | `--help` | ![Help](demo/help.gif) |
-| Delete a session | ![Full flow](demo/full.gif) |
+| v1.3 Project & Session Manager | ![Session manager](demo/session-manager.gif) |
+| Delete a project session history | ![Full flow](demo/full.gif) |
 | Cancel confirmation | ![Cancel](demo/cancel.gif) |
 | In-place update | ![Update](demo/update.gif) |
-| Search, sort, filter, category | ![Features](demo/full.gif) |
+| Search, sort, filter, category | ![Features](demo/features.gif) |
