@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing published release tag to rerun, for example v1.2.0"
-        required: true
+        description: "Optional published release tag to rerun. Leave blank to use the latest published release."
+        required: false
         type: string
 
 permissions:
@@ -30,22 +30,33 @@ jobs:
       - name: Resolve release tag
         id: meta
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANUAL_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
 
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${{ github.event.release.tag_name }}"
+            SOURCE="release.published event"
+          elif [ -n "${MANUAL_TAG:-}" ]; then
+            TAG="$MANUAL_TAG"
+            SOURCE="manual tag input"
           else
-            TAG="${{ inputs.tag }}"
+            TAG="$(
+              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100"                 --jq '[.[] | select(.draft == false and .published_at != null)][0].tag_name'
+            )"
+            SOURCE="latest published GitHub Release"
           fi
 
-          if [ -z "$TAG" ]; then
-            echo "Release tag is required."
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Could not resolve a published GitHub Release tag."
             exit 1
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Release tag: $TAG"
+          echo "Resolved from: $SOURCE"
 
       - name: Verify published GitHub Release exists
         shell: bash
