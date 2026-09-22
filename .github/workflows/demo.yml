@@ -20,6 +20,10 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: demo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   generate:
     name: Render GIFs with VHS
