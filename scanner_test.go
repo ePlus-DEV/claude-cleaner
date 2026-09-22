@@ -755,3 +755,46 @@ func TestForgetProjectRemovesClaudeDataOnly(t *testing.T) {
 		t.Fatal("unrelated root config should be preserved")
 	}
 }
+
+
+func TestCleanOrphanEntriesExceptProtected(t *testing.T) {
+	root := t.TempDir()
+	jsonPath := filepath.Join(root, ".claude.json")
+	protectedPath := filepath.Join(root, "missing-protected")
+	otherPath := filepath.Join(root, "missing-other")
+
+	cfg := map[string]any{
+		"projects": map[string]any{
+			protectedPath: map[string]any{},
+			otherPath:     map[string]any{},
+		},
+	}
+	data, _ := json.Marshal(cfg)
+	if err := os.WriteFile(jsonPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	protected := map[string]bool{normalizePath(protectedPath): true}
+	if err := cleanOrphanEntriesExcept(jsonPath, protected); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rootJSON map[string]json.RawMessage
+	if err := json.Unmarshal(updated, &rootJSON); err != nil {
+		t.Fatal(err)
+	}
+	var projects map[string]json.RawMessage
+	if err := json.Unmarshal(rootJSON["projects"], &projects); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := projects[protectedPath]; !ok {
+		t.Fatal("protected orphan should be preserved")
+	}
+	if _, ok := projects[otherPath]; ok {
+		t.Fatal("unprotected orphan should be removed")
+	}
+}
