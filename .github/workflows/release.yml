@@ -66,7 +66,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: "https://registry.npmjs.org"
 
       - name: Verify release version
         id: version
@@ -136,8 +135,6 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish npm wrapper
+      - name: Publish npm wrapper with Trusted Publishing
         if: steps.npm.outputs.exists != 'true'
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
