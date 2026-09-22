@@ -548,10 +548,21 @@ func forgetProject(s Session, projectsDir, claudeJSONPath string) error {
 	if err := os.WriteFile(tmp, updated, mode); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, claudeJSONPath); err != nil {
+
+	// Windows cannot reliably rename a file over an existing destination.
+	// Move the original aside first and roll it back if replacement fails.
+	backup := claudeJSONPath + ".claude-cleaner.bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(claudeJSONPath, backup); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
+	if err := os.Rename(tmp, claudeJSONPath); err != nil {
+		_ = os.Rename(backup, claudeJSONPath)
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Remove(backup)
 	return nil
 }
 
