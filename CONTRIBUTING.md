@@ -159,7 +159,7 @@ Publishing is intentionally manual at the GitHub Release boundary:
 
 Merging code or bumping `package.json` does not publish anything by itself.
 
-The workflow can also be rerun manually. Leave the tag input blank to automatically use the latest published GitHub Release, or provide an older published tag explicitly. Existing npm versions are detected and skipped.
+The workflow can also be rerun manually. Leave the tag input blank to automatically use the latest published GitHub Release, or provide an older published tag explicitly. Existing npm versions are detected and skipped. After a new publish, the workflow waits for npm registry propagation; if a rerun hits a version that is still staged/processing, it waits instead of attempting to overwrite the same version.
 
 npm publishing uses npm Trusted Publishing (OIDC) from the `release.yml` GitHub Actions workflow. No long-lived `NPM_TOKEN` secret is required.
 
