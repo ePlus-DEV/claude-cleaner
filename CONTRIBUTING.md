@@ -161,7 +161,7 @@ Merging code or bumping `package.json` does not publish anything by itself.
 
 The workflow can also be rerun manually for an existing published release tag. Existing npm versions are detected and skipped.
 
-npm publishing currently uses the repository `NPM_TOKEN` secret.
+npm publishing uses npm Trusted Publishing (OIDC) from the `release.yml` GitHub Actions workflow. No long-lived `NPM_TOKEN` secret is required.
 
 ## Submitting changes
 
