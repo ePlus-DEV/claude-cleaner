@@ -83,26 +83,30 @@ func scanProjectTokens(dirPath string) (int64, bool) {
 		if err != nil {
 			continue
 		}
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 1<<20), 1<<20) // 1 MB per line – handles large tool outputs
-		for sc.Scan() {
-			var row struct {
-				Type    string `json:"type"`
-				Message struct {
-					Usage *jsonlTokens `json:"usage"`
-				} `json:"message"`
+
+		// Use Reader instead of Scanner so a single large JSONL line (for example,
+		// a tool result larger than 1 MB) does not silently stop token aggregation.
+		r := bufio.NewReaderSize(f, 64*1024)
+		for {
+			line, readErr := r.ReadBytes('\n')
+			if len(line) > 0 {
+				var row struct {
+					Type    string `json:"type"`
+					Message struct {
+						Usage *jsonlTokens `json:"usage"`
+					} `json:"message"`
+				}
+				if json.Unmarshal(line, &row) == nil && row.Type == "assistant" && row.Message.Usage != nil {
+					u := row.Message.Usage
+					total += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+					hasData = true
+				}
 			}
-			if json.Unmarshal(sc.Bytes(), &row) != nil {
-				continue
+			if readErr != nil {
+				break
 			}
-			if row.Type != "assistant" || row.Message.Usage == nil {
-				continue
-			}
-			u := row.Message.Usage
-			total += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-			hasData = true
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	return total, hasData
 }
@@ -298,10 +302,15 @@ func DetectClaudeCLI() string {
 	return strings.TrimSpace(string(out))
 }
 
-// smartDelete tries claude project purge first (when CLI is available and
-// ProjectPath is known), then falls back to direct directory removal if the
-// folder still exists afterwards.
-func smartDelete(s Session, projectsDir string) error {
+// deleteSessionData removes only the Claude session-history directory for a
+// project. It never invokes `claude project purge`.
+func deleteSessionData(s Session, projectsDir string) error {
+	return safeRemove(projectsDir, s.Path)
+}
+
+// purgeProject asks Claude Code to purge the project when possible, then falls
+// back to removing its session-history directory if Claude leaves it behind.
+func purgeProject(s Session, projectsDir string) error {
 	if s.ProjectPath != "" {
 		if _, err := exec.LookPath("claude"); err == nil {
 			cmd := exec.Command("claude", "project", "purge", "-y", s.ProjectPath)
@@ -315,10 +324,10 @@ func smartDelete(s Session, projectsDir string) error {
 	return safeRemove(projectsDir, s.Path)
 }
 
-// RunDelete executes deletion for the given sessions snapshot.
+// RunPurge executes a full purge for the given project snapshot.
 // selected is a snapshot (caller must deep-copy before passing to avoid races).
-// If all sessions are selected and claude CLI is available, uses --all for efficiency.
-func RunDelete(sessions []Session, selected map[int]bool, projectsDir string) (deleted, failed []string) {
+// If all projects are selected and claude CLI is available, uses --all for efficiency.
+func RunPurge(sessions []Session, selected map[int]bool, projectsDir string) (deleted, failed []string) {
 	// Check if all sessions are selected
 	allSelected := len(sessions) > 0
 	for _, s := range sessions {
@@ -354,7 +363,7 @@ func RunDelete(sessions []Session, selected map[int]bool, projectsDir string) (d
 		if !selected[s.Index] {
 			continue
 		}
-		if err := smartDelete(s, projectsDir); err != nil {
+		if err := purgeProject(s, projectsDir); err != nil {
 			failed = append(failed, s.Name)
 		} else {
 			deleted = append(deleted, s.Name)
@@ -405,25 +414,22 @@ var cleanableDirs = []struct {
 	{"usage-data", "Usage data", "usage-data"},
 	{"tasks", "Tasks", "tasks"},
 	{"paste-cache", "Paste cache", "paste-cache"},
-	{"plugins", "Plugins cache", "plugins"},
+	// Only the disposable plugin cache is cleanable. Keep plugin state such as
+	// installed_plugins.json, known_marketplaces.json, data, and marketplaces.
+	{"plugins-cache", "Plugins cache", filepath.Join("plugins", "cache")},
 }
 
-// dirSizeCount returns total size and file count for a flat directory.
+// dirSizeCount returns total size and file count recursively so the preview
+// matches what RemoveAll will actually reclaim.
 func dirSizeCount(path string) (size int64, count int) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		info, err := e.Info()
-		if err != nil {
-			continue
+	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
 		}
-		if !e.IsDir() {
-			size += info.Size()
-			count++
-		}
-	}
+		size += info.Size()
+		count++
+		return nil
+	})
 	return
 }
 
@@ -529,7 +535,9 @@ func cleanCategory(cat Category, claudeDir string) error {
 		parentDir := filepath.Dir(claudeDir)
 		backups, _ := filepath.Glob(filepath.Join(parentDir, ".claude.json.backup*"))
 		for _, b := range backups {
-			_ = os.Remove(b)
+			if err := os.Remove(b); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 		return nil
 	default:

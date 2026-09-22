@@ -363,7 +363,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case deleteItemMsg:
 		m.deleteProgress = msg.done
-		return m, nextDeleteCmd(m.sessions, m.deleteSelectedSnap, msg.nextIdx, msg.done, msg.total, msg.deleted, msg.failed, m.projectsDir)
+		return m, nextProjectOperationCmd(m.sessions, m.deleteSelectedSnap, msg.nextIdx, msg.done, msg.total, msg.deleted, msg.failed, m.projectsDir, m.purgeMode)
 
 	case rescanDoneMsg:
 		if msg.err != nil {
@@ -890,7 +890,15 @@ func (m model) doRescan() (tea.Model, tea.Cmd) {
 }
 
 func (m model) doDelete() (tea.Model, tea.Cmd) {
-	// Dry run: simulate without touching any files
+	return m.startProjectOperation(false)
+}
+
+func (m model) doPurge() (tea.Model, tea.Cmd) {
+	return m.startProjectOperation(true)
+}
+
+func (m model) startProjectOperation(purge bool) (tea.Model, tea.Cmd) {
+	// Dry run: simulate without touching any files.
 	if m.dryRun {
 		var deleted []string
 		for _, s := range m.sessions {
@@ -929,14 +937,15 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	m.deleteProgress = 0
 	m.deleteSelectedSnap = snap
 
-	allSelected := total == len(m.sessions) && total > 0
-	if allSelected {
+	// Only full purge may use Claude's optimized --all command. A normal
+	// delete must never invoke `claude project purge`.
+	if purge && total == len(m.sessions) && total > 0 {
 		sessions := m.sessions
 		projectsDir := m.projectsDir
 		return m, tea.Batch(
 			m.spinner.Tick,
 			func() tea.Msg {
-				deleted, failed := RunDelete(sessions, snap, projectsDir)
+				deleted, failed := RunPurge(sessions, snap, projectsDir)
 				return deleteDoneMsg{deleted, failed}
 			},
 		)
@@ -944,18 +953,23 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 
 	return m, tea.Batch(
 		m.spinner.Tick,
-		nextDeleteCmd(m.sessions, snap, 0, 0, total, nil, nil, m.projectsDir),
+		nextProjectOperationCmd(m.sessions, snap, 0, 0, total, nil, nil, m.projectsDir, purge),
 	)
 }
 
-func nextDeleteCmd(sessions []Session, selected map[int]bool, startIdx, done, total int, deleted, failed []string, projectsDir string) tea.Cmd {
+func nextProjectOperationCmd(sessions []Session, selected map[int]bool, startIdx, done, total int, deleted, failed []string, projectsDir string, purge bool) tea.Cmd {
 	return func() tea.Msg {
 		for i := startIdx; i < len(sessions); i++ {
 			s := sessions[i]
 			if !selected[s.Index] {
 				continue
 			}
-			err := smartDelete(s, projectsDir)
+			var err error
+			if purge {
+				err = purgeProject(s, projectsDir)
+			} else {
+				err = deleteSessionData(s, projectsDir)
+			}
 			newDone := done + 1
 			newDel := append([]string(nil), deleted...)
 			newFail := append([]string(nil), failed...)
@@ -977,10 +991,6 @@ func nextDeleteCmd(sessions []Session, selected map[int]bool, startIdx, done, to
 	}
 }
 
-func (m model) doPurge() (tea.Model, tea.Cmd) {
-	return m.doDelete()
-}
-
 func (m model) doPurgeDirect(s Session) (tea.Model, tea.Cmd) {
 	if m.dryRun {
 		name := s.Name
@@ -998,7 +1008,7 @@ func (m model) doPurgeDirect(s Session) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(
 		m.spinner.Tick,
 		func() tea.Msg {
-			if err := smartDelete(s, projectsDir); err != nil {
+			if err := purgeProject(s, projectsDir); err != nil {
 				return deleteDoneMsg{failed: []string{s.Name}}
 			}
 			return deleteDoneMsg{deleted: []string{s.Name}}
