@@ -115,6 +115,9 @@ const (
 	stateDone
 	stateCategories
 	stateCategoryConfirm
+	stateProjectDetail
+	stateSessionConfirm
+	stateForgetConfirm
 )
 
 const bannerLogo = ` ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
@@ -213,6 +216,17 @@ type model struct {
 	categoryCursor   int
 	categoryMode     bool // true when done screen shows category cleanup result
 
+	// v1.3 project/session manager
+	protected       map[string]bool
+	detailProject   Session
+	projectSessions []ProjectSession
+	detailSelected  map[int]bool
+	detailCursor    int
+	detailLoading   bool
+	detailNotice    string
+	forgetTargets   []Session
+	forgetMode      bool
+
 	dryRun bool // --dry-run: simulate deletions without touching files
 }
 
@@ -228,6 +242,8 @@ func newModel(claudeDir, claudeJSONPath, projectsDir string) model {
 		projectsDir:      projectsDir,
 		selected:         make(map[int]bool),
 		categorySelected: make(map[string]bool),
+		protected:        make(map[string]bool),
+		detailSelected:   make(map[int]bool),
 		spinner:          sp,
 	}
 }
@@ -339,6 +355,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateCategoryConfirm {
 			return m.handleCategoryConfirmKey(msg)
 		}
+		if m.state == stateProjectDetail {
+			return m.handleProjectDetailKey(msg)
+		}
+		if m.state == stateSessionConfirm {
+			return m.handleSessionConfirmKey(msg)
+		}
+		if m.state == stateForgetConfirm {
+			return m.handleForgetConfirmKey(msg)
+		}
 		return m.handleListKey(msg)
 
 	case sessionsLoadedMsg:
@@ -415,14 +440,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deleted = msg.cleaned
 		m.failed = msg.failed
 		m.categoryMode = true
+		m.forgetMode = false
 		m.state = stateDone
 		m.categorySelected = make(map[string]bool)
+		return m, nil
+
+	case projectSessionsLoadedMsg:
+		m.detailLoading = false
+		if msg.err != nil {
+			m.detailNotice = "Could not scan project sessions: " + msg.err.Error()
+			m.projectSessions = nil
+			return m, nil
+		}
+		m.projectSessions = msg.sessions
+		m.detailProject = updateProjectStatsFromSessions(m.detailProject, msg.sessions)
+		if m.detailCursor >= len(m.projectSessions) {
+			m.detailCursor = 0
+		}
+		return m, nil
+
+	case sessionDeleteDoneMsg:
+		m.projectSessions = msg.sessions
+		m.detailProject = updateProjectStatsFromSessions(m.detailProject, msg.sessions)
+		m.detailSelected = make(map[int]bool)
+		m.detailCursor = 0
+		m.confirmIdx = 0
+		m.state = stateProjectDetail
+		if msg.dryRun {
+			m.detailNotice = fmt.Sprintf("%d session(s) would be deleted (dry run).", len(msg.deleted))
+		} else {
+			m.detailNotice = fmt.Sprintf("%d session(s) deleted.", len(msg.deleted))
+		}
+		if len(msg.failed) > 0 {
+			m.detailNotice += fmt.Sprintf(" %d failed.", len(msg.failed))
+		}
+		return m, nil
+
+	case forgetDoneMsg:
+		m.deleted = msg.forgotten
+		m.failed = msg.failed
+		m.categoryMode = false
+		m.forgetMode = true
+		m.state = stateDone
+		m.selected = make(map[int]bool)
+		m.forgetTargets = nil
 		return m, nil
 
 	case deleteDoneMsg:
 		m.deleted = msg.deleted
 		m.failed = msg.failed
 		m.categoryMode = false
+		m.forgetMode = false
 		m.state = stateDone
 		m.selected = make(map[int]bool)
 		m.deleteSelectedSnap = nil
@@ -583,13 +651,24 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "a":
 		allOn := n > 0
+		selectable := 0
 		for _, s := range sessions {
+			if m.isProtected(s) {
+				continue
+			}
+			selectable++
 			if !m.selected[s.Index] {
 				allOn = false
-				break
 			}
 		}
+		if selectable == 0 {
+			allOn = false
+		}
 		for _, s := range sessions {
+			if m.isProtected(s) {
+				delete(m.selected, s.Index)
+				continue
+			}
 			m.selected[s.Index] = !allOn
 		}
 
@@ -597,11 +676,11 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Unselect all
 		m.selected = make(map[int]bool)
 
-	case "o":
-		// Select orphaned projects only (○ = no local data)
+	case "o", "O":
+		// Select orphaned projects only (○ = no local data), excluding protected projects.
 		m.selected = make(map[int]bool)
 		for _, s := range m.sessions {
-			if !s.HasData {
+			if !s.HasData && !m.isProtected(s) {
 				m.selected[s.Index] = true
 			}
 		}
@@ -617,8 +696,11 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case " ":
 		if n > 0 && m.cursor < n {
-			idx := sessions[m.cursor].Index
-			m.selected[idx] = !m.selected[idx]
+			project := sessions[m.cursor]
+			if !m.isProtected(project) {
+				idx := project.Index
+				m.selected[idx] = !m.selected[idx]
+			}
 		}
 		return m, nil
 
@@ -627,11 +709,12 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleted = nil
 			m.failed = nil
 			m.categoryMode = false
+			m.forgetMode = false
 			return m.doRescan()
 		}
 		count := 0
-		for _, v := range m.selected {
-			if v {
+		for _, project := range m.sessions {
+			if m.selected[project.Index] && !m.isProtected(project) {
 				count++
 			}
 		}
@@ -639,13 +722,17 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.purgeMode = false
 			m.state = stateConfirm
 			m.confirmIdx = 0
+			return m, nil
+		}
+		if n > 0 && m.cursor < n {
+			return m.openProjectDetail(sessions[m.cursor])
 		}
 		return m, nil
 
 	case "p", "P":
 		count := 0
-		for _, v := range m.selected {
-			if v {
+		for _, project := range m.sessions {
+			if m.selected[project.Index] && !m.isProtected(project) {
 				count++
 			}
 		}
@@ -658,9 +745,17 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r", "R":
 		return m.doRescan()
 
-	case "x", "X":
-		if n > 0 && m.cursor < n {
+	case "x":
+		if n > 0 && m.cursor < n && !m.isProtected(sessions[m.cursor]) {
 			return m.doPurgeDirect(sessions[m.cursor])
+		}
+
+	case "X":
+		return m.prepareForget(sessions)
+
+	case "l", "L":
+		if n > 0 && m.cursor < n {
+			m = m.toggleProtected(sessions[m.cursor])
 		}
 
 	case "u", "U":
@@ -851,9 +946,10 @@ func (m model) doCategoryClean() (tea.Model, tea.Cmd) {
 
 func (m model) persistPrefs() {
 	writePrefs(m.claudeDir, Preferences{
-		SortMode:   int(m.sortMode),
-		FilterMode: int(m.filterMode),
-		ExpiryDays: m.expiryDays,
+		SortMode:          int(m.sortMode),
+		FilterMode:        int(m.filterMode),
+		ExpiryDays:        m.expiryDays,
+		ProtectedProjects: m.protectedList(),
 	})
 }
 
@@ -1047,6 +1143,12 @@ func (m model) View() string {
 		body = m.viewCategories()
 	case stateCategoryConfirm:
 		body = m.viewCategoryConfirm()
+	case stateProjectDetail:
+		body = m.viewProjectDetail()
+	case stateSessionConfirm:
+		body = m.viewSessionConfirm()
+	case stateForgetConfirm:
+		body = m.viewForgetConfirm()
 	}
 
 	return header + body
@@ -1127,10 +1229,11 @@ func (m model) viewList() string {
 	}
 
 	const (
-		nameW   = 36
-		timeW   = 12
-		tokensW = 10
-		sizeW   = 8
+		nameW     = 32
+		sessionsW = 8
+		timeW     = 12
+		tokensW   = 10
+		sizeW     = 8
 	)
 
 	var sb strings.Builder
@@ -1162,13 +1265,14 @@ func (m model) viewList() string {
 	}
 
 	// Column header
-	sb.WriteString(dimStyle.Render(fmt.Sprintf("        %-*s  %-*s  %-*s  %s",
+	sb.WriteString(dimStyle.Render(fmt.Sprintf("        %-*s  %-*s  %-*s  %-*s  %s",
 		nameW, "Name",
+		sessionsW, "Sessions",
 		timeW, "Last modified",
 		tokensW, "Tokens",
 		"Size",
 	)) + "\n")
-	sb.WriteString(dimStyle.Render("  "+strings.Repeat("─", nameW+timeW+tokensW+sizeW+18)) + "\n")
+	sb.WriteString(dimStyle.Render("  "+strings.Repeat("─", nameW+sessionsW+timeW+tokensW+sizeW+20)) + "\n")
 
 	rowW := m.width
 	if rowW < 82 {
@@ -1214,6 +1318,9 @@ func (m model) viewList() string {
 		if s.ProjectPath != "" {
 			displayName = filepath.Base(s.ProjectPath)
 		}
+		if m.isProtected(s) {
+			displayName = "🔒 " + displayName
+		}
 
 		nameFg := clrFg
 		if !s.HasData {
@@ -1235,11 +1342,16 @@ func (m model) viewList() string {
 			tokStr = "—"
 			szStr = "—"
 		}
+		sessionCount := "—"
+		if s.HasData || s.SessionCount > 0 {
+			sessionCount = fmt.Sprintf("%d", s.SessionCount)
+		}
+		sc := lipgloss.NewStyle().Foreground(clrComment).Background(bg).Width(sessionsW).Render(sessionCount)
 		t := lipgloss.NewStyle().Foreground(clrComment).Background(bg).Width(timeW).Render(timeStr)
 		tok := lipgloss.NewStyle().Foreground(clrPurple).Background(bg).Width(tokensW).Render(tokStr)
 		sz := lipgloss.NewStyle().Foreground(clrCyan).Background(bg).Render(szStr)
 
-		content := cur + check + " " + status + " " + name + "  " + t + "  " + tok + "  " + sz
+		content := cur + check + " " + status + " " + name + "  " + sc + "  " + t + "  " + tok + "  " + sz
 		sb.WriteString(rowStyle.Width(rowW).Render(content) + "\n")
 	}
 
@@ -1274,7 +1386,7 @@ func (m model) viewList() string {
 		expiryLabel = fmt.Sprintf("%dd", m.expiryDays)
 	}
 	footer := fmt.Sprintf(
-		"↑/↓ navigate  space select  a all  enter delete  s sort  f filter  e expiry:%s  c categories  / search  ? help  q quit    %s",
+		"↑/↓ navigate  enter open/delete  space select  a all  l lock  X forget  s sort  f filter  e expiry:%s  c categories  / search  ? help  q quit    %s",
 		expiryLabel, selInfo,
 	)
 	sb.WriteString(helpStyle.Render(footer))
@@ -1380,6 +1492,11 @@ func (m model) viewDone() string {
 			label = fmt.Sprintf("%d category/categories cleaned", len(m.deleted))
 			if m.dryRun {
 				label = fmt.Sprintf("%d category/categories would be cleaned  (dry run — nothing was modified)", len(m.deleted))
+			}
+		} else if m.forgetMode {
+			label = fmt.Sprintf("%d project(s) forgotten", len(m.deleted))
+			if m.dryRun {
+				label = fmt.Sprintf("%d project(s) would be forgotten  (dry run — nothing was modified)", len(m.deleted))
 			}
 		} else {
 			label = fmt.Sprintf("%d session(s) deleted", len(m.deleted))
