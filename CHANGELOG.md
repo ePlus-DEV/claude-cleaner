@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added Project Detail with per-conversation session listing, message count, token usage, size, and timestamps.
+- Added individual conversation deletion from Project Detail.
+- Added Protected Projects with persistent lock/unlock state; destructive bulk actions skip locked projects.
+- Added Forget Project to remove Claude-owned session data and matching `~/.claude.json` metadata without touching source code.
+- Added project-level conversation counts and richer statistics in the main list.
+- Added Windows-safe config replacement when forgetting projects.
+
 ## 1.2.0 - 2026-09-22
 
 - Fixed Delete vs Purge semantics: normal Delete now removes only Claude session-history directories and never invokes `claude project purge`; explicit Purge/Force-purge retain Claude CLI integration.
