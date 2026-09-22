@@ -148,4 +148,42 @@ jobs:
 
       - name: Publish npm wrapper with Trusted Publishing
         if: steps.npm.outputs.exists != 'true'
-        run: npm publish --access public
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+
+          set +e
+          PUBLISH_OUTPUT="$(npm publish --access public 2>&1)"
+          PUBLISH_STATUS=$?
+          set -e
+
+          printf '%s\n' "$PUBLISH_OUTPUT"
+
+          if [ "$PUBLISH_STATUS" -ne 0 ]; then
+            if printf '%s\n' "$PUBLISH_OUTPUT" | grep -q 'Cannot publish over previously staged version'; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION is already staged or still being processed by npm."
+              echo "Waiting for the registry to expose the version instead of publishing it again."
+            else
+              exit "$PUBLISH_STATUS"
+            fi
+          fi
+
+          for attempt in $(seq 1 30); do
+            PUBLISHED_VERSION="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version 2>/dev/null || true)"
+
+            if [ "$PUBLISHED_VERSION" = "$PACKAGE_VERSION" ]; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION is now available on npm."
+              exit 0
+            fi
+
+            echo "npm registry has not exposed $PACKAGE_NAME@$PACKAGE_VERSION yet (attempt $attempt/30)."
+            sleep 10
+          done
+
+          echo "$PACKAGE_NAME@$PACKAGE_VERSION is still not publicly visible after 5 minutes."
+          echo "If npm shows this version under Staged Packages, approve or reject that staged package on npmjs.com before rerunning."
+          exit 1
