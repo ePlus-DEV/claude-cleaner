@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -90,12 +91,9 @@ func updateProjectStatsFromSessions(project Session, sessions []ProjectSession) 
 	project.TotalTokens = 0
 	project.HasTokenData = false
 	project.HasData = len(sessions) > 0
-	project.Modified = project.Modified.Add(0)
-	project.Oldest = project.Oldest.Add(0)
-
 	if len(sessions) == 0 {
-		project.Modified = project.Modified.Add(-project.Modified.Sub(project.Modified))
-		project.Oldest = project.Oldest.Add(-project.Oldest.Sub(project.Oldest))
+		project.Modified = time.Time{}
+		project.Oldest = time.Time{}
 		return project
 	}
 
