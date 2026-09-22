@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.2.0 - 2026-09-22
+
 - Fixed Delete vs Purge semantics: normal Delete now removes only Claude session-history directories and never invokes `claude project purge`; explicit Purge/Force-purge retain Claude CLI integration.
 - Token aggregation now handles JSONL lines larger than 1 MB without silently truncating the scan.
 - Category cleanup now measures nested files recursively so previewed reclaimable size matches the cleanup scope.
