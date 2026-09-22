@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -233,6 +234,24 @@ func TestScanProjectTokens(t *testing.T) {
 	}
 }
 
+func TestScanProjectTokensLargeJSONLLine(t *testing.T) {
+	dir := t.TempDir()
+	line := `{"type":"assistant","padding":"` +
+		strings.Repeat("x", 2*1024*1024) +
+		`","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":20,"cache_read_input_tokens":10}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "large.jsonl"), []byte(line), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	total, hasData := scanProjectTokens(dir)
+	if !hasData {
+		t.Fatal("large JSONL line should still produce token data")
+	}
+	if total != 180 {
+		t.Fatalf("large JSONL line tokens want 180, got %d", total)
+	}
+}
+
 func TestScanProjectTokensEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	total, hasData := scanProjectTokens(dir)
@@ -441,6 +460,67 @@ func TestProjectStatsSkipsSubdirs(t *testing.T) {
 	}
 }
 
+func TestDirSizeCountRecursive(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested", "deeper")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "top.txt"), []byte("12345"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "child.txt"), []byte("1234567"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	size, count := dirSizeCount(dir)
+	if size != 12 {
+		t.Fatalf("recursive size want 12, got %d", size)
+	}
+	if count != 2 {
+		t.Fatalf("recursive count want 2, got %d", count)
+	}
+}
+
+func TestScanCategoriesTargetsOnlyPluginCache(t *testing.T) {
+	claudeDir := t.TempDir()
+	cacheDir := filepath.Join(claudeDir, "plugins", "cache")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "cached.bin"), []byte("cache"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(claudeDir, "plugins", "installed_plugins.json")
+	if err := os.WriteFile(statePath, []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var pluginCat *Category
+	cats := scanCategories(claudeDir)
+	for i := range cats {
+		if cats[i].Key == "plugins-cache" {
+			pluginCat = &cats[i]
+			break
+		}
+	}
+	if pluginCat == nil {
+		t.Fatal("plugins-cache category not found")
+	}
+	if pluginCat.Path != cacheDir {
+		t.Fatalf("plugin cleanup path want %q, got %q", cacheDir, pluginCat.Path)
+	}
+	if err := cleanCategory(*pluginCat, claudeDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Fatal("plugin cache should be removed")
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("plugin state must be preserved: %v", err)
+	}
+}
+
 func TestProjectStatsEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	size, mod := projectStats(dir)
@@ -459,9 +539,9 @@ func TestProjectStatsNonexistentDir(t *testing.T) {
 	}
 }
 
-// --- RunDelete partial vs all ---
+// --- RunPurge partial vs all ---
 
-func TestRunDeletePartialSelection(t *testing.T) {
+func TestRunPurgePartialSelection(t *testing.T) {
 	projectsDir := t.TempDir()
 
 	makeSession := func(idx int, name string) Session {
@@ -479,7 +559,7 @@ func TestRunDeletePartialSelection(t *testing.T) {
 	// Only select proj-a and proj-c
 	selected := map[int]bool{1: true, 3: true}
 
-	deleted, failed := RunDelete(sessions, selected, projectsDir)
+	deleted, failed := RunPurge(sessions, selected, projectsDir)
 
 	if len(failed) != 0 {
 		t.Errorf("no failures expected, got %v", failed)
@@ -497,27 +577,27 @@ func TestRunDeletePartialSelection(t *testing.T) {
 	}
 }
 
-// --- smartDelete with no ProjectPath ---
+// --- purgeProject with no ProjectPath ---
 
-func TestSmartDeleteNoProjectPath(t *testing.T) {
+func TestPurgeProjectNoProjectPath(t *testing.T) {
 	projectsDir := t.TempDir()
 	dir := filepath.Join(projectsDir, "orphan")
 	if err := os.Mkdir(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	s := Session{Index: 1, Name: "orphan", Path: dir, ProjectPath: ""}
-	if err := smartDelete(s, projectsDir); err != nil {
-		t.Errorf("smartDelete with no ProjectPath should still remove dir: %v", err)
+	if err := purgeProject(s, projectsDir); err != nil {
+		t.Errorf("purgeProject with no ProjectPath should still remove dir: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Error("dir should be removed")
 	}
 }
 
-func TestSmartDeleteAlreadyGone(t *testing.T) {
+func TestPurgeProjectAlreadyGone(t *testing.T) {
 	projectsDir := t.TempDir()
 	s := Session{Index: 1, Name: "gone", Path: filepath.Join(projectsDir, "gone"), ProjectPath: ""}
-	if err := smartDelete(s, projectsDir); err != nil {
-		t.Errorf("smartDelete on nonexistent path should succeed: %v", err)
+	if err := purgeProject(s, projectsDir); err != nil {
+		t.Errorf("purgeProject on nonexistent path should succeed: %v", err)
 	}
 }
