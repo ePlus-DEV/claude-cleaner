@@ -183,11 +183,14 @@ func TestEnterWithSelectionGoesToConfirm(t *testing.T) {
 	}
 }
 
-func TestEnterWithNoSelectionStaysList(t *testing.T) {
+func TestEnterWithNoSelectionOpensProjectDetail(t *testing.T) {
 	m := makeTestModel(fakeSessions(3))
 	m = pressKey(m, "enter")
-	if m.state != stateList {
-		t.Errorf("want stateList, got %v", m.state)
+	if m.state != stateProjectDetail {
+		t.Errorf("want stateProjectDetail, got %v", m.state)
+	}
+	if m.detailProject.Index != 1 {
+		t.Errorf("expected first project opened, got index %d", m.detailProject.Index)
 	}
 }
 
@@ -1115,5 +1118,83 @@ func TestCategoryConfirmEnterOnNoReturnsToCategories(t *testing.T) {
 	m = pressKey(m, "enter")
 	if m.state != stateCategories {
 		t.Errorf("enter on No should return to stateCategories, got %v", m.state)
+	}
+}
+
+
+func TestLockProjectPreventsSelection(t *testing.T) {
+	m := makeTestModel(fakeSessions(3))
+	m = pressKey(m, "l")
+	if !m.isProtected(m.sessions[0]) {
+		t.Fatal("first project should be protected after l")
+	}
+
+	m = pressKey(m, "a")
+	if m.selected[m.sessions[0].Index] {
+		t.Fatal("protected project must not be selected by select-all")
+	}
+	if !m.selected[m.sessions[1].Index] || !m.selected[m.sessions[2].Index] {
+		t.Fatal("unprotected projects should still be selected")
+	}
+}
+
+func TestSpaceDoesNotSelectProtectedProject(t *testing.T) {
+	m := makeTestModel(fakeSessions(1))
+	m.protected[projectIdentity(m.sessions[0])] = true
+	m = pressKey(m, " ")
+	if m.selected[m.sessions[0].Index] {
+		t.Fatal("protected project must not be selected")
+	}
+}
+
+func TestForgetKeyOpensConfirmation(t *testing.T) {
+	m := makeTestModel(realisticSessions())
+	m = pressKey(m, "X")
+	if m.state != stateForgetConfirm {
+		t.Fatalf("X should open forget confirmation, got %v", m.state)
+	}
+	if len(m.forgetTargets) != 1 || m.forgetTargets[0].Index != 1 {
+		t.Fatalf("expected current project as forget target, got %#v", m.forgetTargets)
+	}
+}
+
+func TestForgetSkipsProtectedProject(t *testing.T) {
+	m := makeTestModel(realisticSessions())
+	m.protected[projectIdentity(m.sessions[0])] = true
+	m = pressKey(m, "X")
+	if m.state != stateList {
+		t.Fatalf("protected project should not enter forget confirm, got %v", m.state)
+	}
+}
+
+func TestProjectDetailDeleteSelectionGoesToConfirm(t *testing.T) {
+	m := makeTestModel(realisticSessions())
+	m.state = stateProjectDetail
+	m.detailProject = m.sessions[0]
+	m.projectSessions = []ProjectSession{
+		{Index: 1, ID: "one", Size: 100},
+		{Index: 2, ID: "two", Size: 200},
+	}
+	m.detailSelected = make(map[int]bool)
+	m = pressKey(m, " ")
+	if !m.detailSelected[1] {
+		t.Fatal("first conversation should be selected")
+	}
+	m = pressKey(m, "enter")
+	if m.state != stateSessionConfirm {
+		t.Fatalf("enter with selected conversation should open confirmation, got %v", m.state)
+	}
+}
+
+func TestProjectDetailProtectedDisablesSessionSelection(t *testing.T) {
+	m := makeTestModel(realisticSessions())
+	m.state = stateProjectDetail
+	m.detailProject = m.sessions[0]
+	m.projectSessions = []ProjectSession{{Index: 1, ID: "one"}}
+	m.detailSelected = make(map[int]bool)
+	m.protected[projectIdentity(m.detailProject)] = true
+	m = pressKey(m, " ")
+	if m.detailSelected[1] {
+		t.Fatal("locked project must not allow conversation selection")
 	}
 }

@@ -19,10 +19,24 @@ type Session struct {
 	Path         string
 	ProjectPath  string // actual working dir from ~/.claude.json; empty if unknown
 	Modified     time.Time
+	Oldest       time.Time
 	Size         int64
 	TotalTokens  int64
+	SessionCount int
 	HasTokenData bool // false = no token data in ~/.claude.json or session .jsonl files (show "—")
 	HasData      bool // false = directory absent or empty (no session files found)
+}
+
+// ProjectSession is one Claude conversation JSONL file inside a project.
+type ProjectSession struct {
+	Index        int
+	ID           string
+	Path         string
+	Modified     time.Time
+	Size         int64
+	TotalTokens  int64
+	MessageCount int
+	HasTokenData bool
 }
 
 // projectEntry mirrors the token fields stored per-project in ~/.claude.json.
@@ -65,9 +79,44 @@ type jsonlTokens struct {
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
-// scanProjectTokens sums token usage from all top-level .jsonl session files in
-// dirPath. Returns (total, hasData); hasData is true when at least one usage
-// record was found.
+// scanSessionFile reads one Claude conversation JSONL file.
+func scanSessionFile(path string) (total int64, hasTokenData bool, messageCount int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false, 0
+	}
+	defer f.Close()
+
+	r := bufio.NewReaderSize(f, 64*1024)
+	for {
+		line, readErr := r.ReadBytes('\n')
+		if len(line) > 0 {
+			var row struct {
+				Type    string          `json:"type"`
+				Message json.RawMessage `json:"message"`
+			}
+			if json.Unmarshal(line, &row) == nil && len(row.Message) > 0 && string(row.Message) != "null" {
+				messageCount++
+				if row.Type == "assistant" {
+					var msg struct {
+						Usage *jsonlTokens `json:"usage"`
+					}
+					if json.Unmarshal(row.Message, &msg) == nil && msg.Usage != nil {
+						u := msg.Usage
+						total += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+						hasTokenData = true
+					}
+				}
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return total, hasTokenData, messageCount
+}
+
+// scanProjectTokens sums token usage from all top-level .jsonl session files.
 func scanProjectTokens(dirPath string) (int64, bool) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -76,39 +125,76 @@ func scanProjectTokens(dirPath string) (int64, bool) {
 	var total int64
 	var hasData bool
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".jsonl") {
 			continue
 		}
-		f, err := os.Open(filepath.Join(dirPath, e.Name()))
+		tokens, hasTokens, _ := scanSessionFile(filepath.Join(dirPath, e.Name()))
+		total += tokens
+		hasData = hasData || hasTokens
+	}
+	return total, hasData
+}
+
+// scanProjectSessions returns individual conversation files for Project Detail.
+func scanProjectSessions(dirPath string) ([]ProjectSession, error) {
+	entries, err := os.ReadDir(dirPath)
+	if os.IsNotExist(err) {
+		return []ProjectSession{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []ProjectSession
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-
-		// Use Reader instead of Scanner so a single large JSONL line (for example,
-		// a tool result larger than 1 MB) does not silently stop token aggregation.
-		r := bufio.NewReaderSize(f, 64*1024)
-		for {
-			line, readErr := r.ReadBytes('\n')
-			if len(line) > 0 {
-				var row struct {
-					Type    string `json:"type"`
-					Message struct {
-						Usage *jsonlTokens `json:"usage"`
-					} `json:"message"`
-				}
-				if json.Unmarshal(line, &row) == nil && row.Type == "assistant" && row.Message.Usage != nil {
-					u := row.Message.Usage
-					total += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-					hasData = true
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
-		_ = f.Close()
+		path := filepath.Join(dirPath, e.Name())
+		tokens, hasTokens, messages := scanSessionFile(path)
+		sessions = append(sessions, ProjectSession{
+			ID:           strings.TrimSuffix(e.Name(), filepath.Ext(e.Name())),
+			Path:         path,
+			Modified:     info.ModTime(),
+			Size:         info.Size(),
+			TotalTokens:  tokens,
+			MessageCount: messages,
+			HasTokenData: hasTokens,
+		})
 	}
-	return total, hasData
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].Modified.After(sessions[j].Modified)
+	})
+	for i := range sessions {
+		sessions[i].Index = i + 1
+	}
+	return sessions, nil
+}
+
+func projectSessionSummary(dirPath string) (count int, oldest time.Time) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return 0, time.Time{}
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		count++
+		if oldest.IsZero() || info.ModTime().Before(oldest) {
+			oldest = info.ModTime()
+		}
+	}
+	return count, oldest
 }
 
 // normalizePath lowercases and normalises separators so Windows paths are
@@ -201,6 +287,7 @@ func scanSessions(claudeJSONPath, projectsDir string) ([]Session, error) {
 			encoded := encodePath(projPath)
 			dirPath := filepath.Join(projectsDir, encoded)
 			size, modified := projectStats(dirPath)
+			sessionCount, oldest := projectSessionSummary(dirPath)
 
 			totalTokens := e.total()
 			hasTokenData := e.hasAnyField()
@@ -212,8 +299,10 @@ func scanSessions(claudeJSONPath, projectsDir string) ([]Session, error) {
 				Path:         dirPath,
 				ProjectPath:  projPath,
 				Modified:     modified,
+				Oldest:       oldest,
 				Size:         size,
 				TotalTokens:  totalTokens,
+				SessionCount: sessionCount,
 				HasTokenData: hasTokenData,
 				HasData:      !modified.IsZero(),
 			}
@@ -258,13 +347,16 @@ func scanFromDir(projectsDir string) ([]Session, error) {
 			defer wg.Done()
 			dirPath := filepath.Join(projectsDir, e.Name())
 			size, modified := projectStats(dirPath)
+			sessionCount, oldest := projectSessionSummary(dirPath)
 			totalTokens, hasTokenData := scanProjectTokens(dirPath)
 			ch <- Session{
 				Name:         e.Name(),
 				Path:         dirPath,
 				Modified:     modified,
+				Oldest:       oldest,
 				Size:         size,
 				TotalTokens:  totalTokens,
+				SessionCount: sessionCount,
 				HasTokenData: hasTokenData,
 				HasData:      !modified.IsZero(),
 			}
@@ -370,6 +462,108 @@ func RunPurge(sessions []Session, selected map[int]bool, projectsDir string) (de
 		}
 	}
 	return
+}
+
+// safeRemoveSessionFile removes one direct JSONL child of a project directory.
+func safeRemoveSessionFile(projectDir, targetPath string) error {
+	rel, err := filepath.Rel(filepath.Clean(projectDir), filepath.Clean(targetPath))
+	if err != nil {
+		return fmt.Errorf("invalid session path: %w", err)
+	}
+	if rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+		strings.Contains(rel, string(filepath.Separator)) ||
+		!strings.EqualFold(filepath.Ext(rel), ".jsonl") {
+		return fmt.Errorf("refusing to delete file outside project session directory")
+	}
+	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// forgetProject removes Claude-owned session data and the matching ~/.claude.json
+// project entry. The user's source project directory is never touched.
+func forgetProject(s Session, projectsDir, claudeJSONPath string) error {
+	if s.Path != "" {
+		if _, err := os.Stat(s.Path); err == nil {
+			if err := safeRemove(projectsDir, s.Path); err != nil {
+				return err
+			}
+	}
+	}
+
+	if s.ProjectPath == "" || claudeJSONPath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(claudeJSONPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	rawProjects, ok := root["projects"]
+	if !ok {
+		return nil
+	}
+	var projects map[string]json.RawMessage
+	if err := json.Unmarshal(rawProjects, &projects); err != nil {
+		return err
+	}
+
+	removed := false
+	want := normalizePath(s.ProjectPath)
+	for key := range projects {
+		if normalizePath(key) == want {
+			delete(projects, key)
+			removed = true
+		}
+	}
+	if !removed {
+		return nil
+	}
+
+	updatedProjects, err := json.Marshal(projects)
+	if err != nil {
+		return err
+	}
+	root["projects"] = updatedProjects
+	updated, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	updated = append(updated, '\n')
+
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(claudeJSONPath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	tmp := claudeJSONPath + ".claude-cleaner.tmp"
+	if err := os.WriteFile(tmp, updated, mode); err != nil {
+		return err
+	}
+
+	// Windows cannot reliably rename a file over an existing destination.
+	// Move the original aside first and roll it back if replacement fails.
+	backup := claudeJSONPath + ".claude-cleaner.bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(claudeJSONPath, backup); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, claudeJSONPath); err != nil {
+		_ = os.Rename(backup, claudeJSONPath)
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 func safeRemove(projectsDir, targetPath string) error {
@@ -549,8 +743,14 @@ func cleanCategory(cat Category, claudeDir string) error {
 }
 
 // cleanOrphanEntries removes project entries from ~/.claude.json where the
-// project directory no longer exists, writing back atomically.
+// project directory no longer exists.
 func cleanOrphanEntries(claudeJSONPath string) error {
+	return cleanOrphanEntriesExcept(claudeJSONPath, nil)
+}
+
+// cleanOrphanEntriesExcept preserves orphan entries whose normalized project
+// paths are protected by Claude Cleaner.
+func cleanOrphanEntriesExcept(claudeJSONPath string, protected map[string]bool) error {
 	data, err := os.ReadFile(claudeJSONPath)
 	if err != nil {
 		return err
@@ -569,6 +769,9 @@ func cleanOrphanEntries(claudeJSONPath string) error {
 	}
 	changed := false
 	for path := range projects {
+		if protected != nil && protected[normalizePath(path)] {
+			continue
+		}
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			delete(projects, path)
 			changed = true
@@ -586,11 +789,29 @@ func cleanOrphanEntries(claudeJSONPath string) error {
 	if err != nil {
 		return err
 	}
-	tmpPath := claudeJSONPath + ".tmp"
-	if err := os.WriteFile(tmpPath, newData, 0644); err != nil {
+	newData = append(newData, '\n')
+
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(claudeJSONPath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	tmpPath := claudeJSONPath + ".claude-cleaner-orphans.tmp"
+	if err := os.WriteFile(tmpPath, newData, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, claudeJSONPath)
+	backup := claudeJSONPath + ".claude-cleaner-orphans.bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(claudeJSONPath, backup); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, claudeJSONPath); err != nil {
+		_ = os.Rename(backup, claudeJSONPath)
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 // trimHistory keeps only the last keepLines lines of histPath, writing atomically.

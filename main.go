@@ -40,7 +40,9 @@ Key bindings:
   n             Unselect all
   o             Select all orphaned projects (○)
   d             Reset sort / filter / search / selection to defaults
-  enter         Confirm — show delete screen (when items selected)
+  enter         Open project detail, or delete selected projects
+  l             Lock / unlock project
+  X             Forget project metadata + Claude session data
   p             Purge selected (confirm screen)
   x             Force-purge item at cursor — no confirm
   s             Cycle sort: recent → size → tokens → name
@@ -125,6 +127,9 @@ func main() {
 	m.sortMode = sortMode(prefs.SortMode)
 	m.filterMode = filterMode(prefs.FilterMode)
 	m.expiryDays = prefs.ExpiryDays
+	for _, key := range prefs.ProtectedProjects {
+		m.protected[normalizePath(key)] = true
+	}
 	// restore expiryIdx so cycling works correctly
 	for i, v := range []int{0, 7, 14, 30, 60, 90} {
 		if v == prefs.ExpiryDays {

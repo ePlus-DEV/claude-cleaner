@@ -81,7 +81,9 @@ claude-cleaner --version
 | `a` | Select / deselect all visible items |
 | `n` | Unselect all |
 | `o` | Select orphaned projects only |
-| `enter` | Delete selected session-history directories (confirm screen) |
+| `enter` | Open Project Detail when nothing is selected; otherwise delete selected project session-history directories |
+| `l` | Lock / unlock project (protected projects are skipped by destructive bulk actions) |
+| `X` | Forget project: remove Claude session data + project metadata, never source code |
 | `p` | Full purge selected projects through Claude CLI when available |
 | `x` | Force-purge item at cursor — no confirm |
 | `s` | Cycle sort: recent / size / tokens / name |
@@ -101,6 +103,11 @@ claude-cleaner --version
 - Displays **token usage** per project — reads `lastTotal*` fields from `~/.claude.json` when available, otherwise aggregates `message.usage` from session `.jsonl` files. Formatted as K / M / B / T / P / E.
 - Status column `●` (session files on disk) / `○` (config only, no local data).
 - Windows path dedup — `d:/foo` and `D:/foo` treated as the same project; higher-token entry wins.
+- Project Detail screen with per-conversation JSONL session count, modified time, message count, token usage, and size.
+- Delete individual conversation sessions without removing the entire project history.
+- Protected Projects with `l`: locked projects are excluded from select-all, orphan selection, delete, purge, and forget operations.
+- Forget Project with `X`: removes Claude-owned session data and the matching `~/.claude.json` project entry while preserving the real source project.
+- Project list includes conversation/session counts alongside size, token usage, and last-modified time.
 - Multi-select with `space`, select all with `a`, confirm with `enter`.
 - Separate deletion backends: normal **Delete** removes only the selected Claude session-history directory; **Purge** uses `claude project purge` when available and falls back to session-directory removal.
 - `--dry-run` previews exactly which projects/categories would be cleaned without touching files.
@@ -126,7 +133,9 @@ These folders contain Claude Code session and conversation history. Source code 
 
 | Mode | Key | Confirm | Scope | How |
 | --- | --- | --- | --- | --- |
-| Delete | `enter` | ✓ screen | selected items | removes only the matching directory under `~/.claude/projects`; never invokes `claude project purge` |
+| Delete | `enter` with selected projects | ✓ screen | selected items | removes only the matching directory under `~/.claude/projects`; never invokes `claude project purge` |
+| Delete conversation | Project Detail → `enter` | ✓ screen | selected JSONL sessions | removes only selected conversation files inside one project |
+| Forget project | `X` | ✓ screen | current/selected projects | removes Claude session data and matching `~/.claude.json` metadata; source code is never touched |
 | Purge | `p` | ✓ screen | selected items | runs `claude project purge -y <path>` when available; falls back to the matching session directory |
 | Force-purge | `x` | ✗ | cursor item only | same purge chain as `p`, without a confirm screen |
 | Delete all | `a` then `enter` | ✓ screen | all visible/selected items | deletes selected session directories individually; does not call `purge --all` |

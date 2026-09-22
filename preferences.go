@@ -8,9 +8,10 @@ import (
 
 // Preferences persisted between sessions at ~/.claude/cleaner-preferences.json
 type Preferences struct {
-	SortMode   int `json:"sort_mode"`
-	FilterMode int `json:"filter_mode"`
-	ExpiryDays int `json:"expiry_days"`
+	SortMode          int      `json:"sort_mode"`
+	FilterMode        int      `json:"filter_mode"`
+	ExpiryDays        int      `json:"expiry_days"`
+	ProtectedProjects []string `json:"protected_projects,omitempty"`
 }
 
 func prefsPath(claudeDir string) string {
