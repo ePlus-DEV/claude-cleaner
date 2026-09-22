@@ -1,18 +1,13 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
-    paths:
-      - "package.json"
-      - ".github/workflows/release.yml"
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to publish, for example v1.2.0"
+        description: "Existing published release tag to rerun, for example v1.2.0"
         required: true
         type: string
 
@@ -20,23 +15,52 @@ permissions:
   contents: read
 
 concurrency:
-  group: claude-cleaner-release
+  group: claude-cleaner-release-${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   release:
-    name: GitHub Release & npm publish
+    name: Build assets & publish npm
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
 
     steps:
-      - name: Checkout release source
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "Release tag is required."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG"
+
+      - name: Verify published GitHub Release exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+
+      - name: Checkout release tag
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ steps.meta.outputs.tag }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -44,17 +68,19 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Resolve release version
-        id: meta
+      - name: Verify release version
+        id: version
         shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
 
           PKG_VERSION="$(node -p "require('./package.json').version")"
           GO_VERSION="$(sed -n 's/^var version = "\(.*\)"$/\1/p' main.go)"
 
-          if [ -z "$PKG_VERSION" ] || [ -z "$GO_VERSION" ]; then
-            echo "Could not resolve package or Go version."
+          if [ "$TAG" != "v$PKG_VERSION" ]; then
+            echo "Release tag $TAG does not match package.json version v$PKG_VERSION"
             exit 1
           fi
 
@@ -63,107 +89,40 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
-          else
-            TAG="v$PKG_VERSION"
-          fi
-
-          if [ "$TAG" != "v$PKG_VERSION" ]; then
-            echo "Tag $TAG does not match package version v$PKG_VERSION"
-            exit 1
-          fi
-
           echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Release target: $TAG"
-
-      - name: Create release tag when needed
-        id: tag
-        shell: bash
-        env:
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git fetch --tags --force
-
-          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists; reusing it."
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "Tag $TAG does not exist. Automatic tag creation is only allowed from a push to main."
-            exit 1
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/$TAG"
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "Created $TAG at $GITHUB_SHA"
-
-      - name: Checkout release tag
-        shell: bash
-        env:
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git checkout --detach "$TAG"
-
-      - name: Verify tagged version
-        shell: bash
-        env:
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          set -euo pipefail
-
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          GO_VERSION="$(sed -n 's/^var version = "\(.*\)"$/\1/p' main.go)"
-
-          test "$TAG" = "v$PKG_VERSION"
-          test "$PKG_VERSION" = "$GO_VERSION"
-
-      - name: Check GitHub Release
-        id: github_release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "GitHub Release $TAG already exists; skipping GoReleaser publish."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Set up Go
-        if: steps.github_release.outputs.exists != 'true'
         uses: actions/setup-go@v6
         with:
           go-version: "1.25"
           cache: true
 
-      - name: Run GoReleaser
-        if: steps.github_release.outputs.exists != 'true'
+      - name: Build release assets
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: release --clean --skip=publish
+
+      - name: Upload assets to published GitHub Release
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            dist/*.tar.gz \
+            dist/*.zip \
+            dist/checksums.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
       - name: Check npm version
         id: npm
         shell: bash
         env:
-          PACKAGE_VERSION: ${{ steps.meta.outputs.version }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
