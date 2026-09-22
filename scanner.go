@@ -743,8 +743,14 @@ func cleanCategory(cat Category, claudeDir string) error {
 }
 
 // cleanOrphanEntries removes project entries from ~/.claude.json where the
-// project directory no longer exists, writing back atomically.
+// project directory no longer exists.
 func cleanOrphanEntries(claudeJSONPath string) error {
+	return cleanOrphanEntriesExcept(claudeJSONPath, nil)
+}
+
+// cleanOrphanEntriesExcept preserves orphan entries whose normalized project
+// paths are protected by Claude Cleaner.
+func cleanOrphanEntriesExcept(claudeJSONPath string, protected map[string]bool) error {
 	data, err := os.ReadFile(claudeJSONPath)
 	if err != nil {
 		return err
@@ -763,6 +769,9 @@ func cleanOrphanEntries(claudeJSONPath string) error {
 	}
 	changed := false
 	for path := range projects {
+		if protected != nil && protected[normalizePath(path)] {
+			continue
+		}
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			delete(projects, path)
 			changed = true
@@ -780,11 +789,29 @@ func cleanOrphanEntries(claudeJSONPath string) error {
 	if err != nil {
 		return err
 	}
-	tmpPath := claudeJSONPath + ".tmp"
-	if err := os.WriteFile(tmpPath, newData, 0644); err != nil {
+	newData = append(newData, '\n')
+
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(claudeJSONPath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	tmpPath := claudeJSONPath + ".claude-cleaner-orphans.tmp"
+	if err := os.WriteFile(tmpPath, newData, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, claudeJSONPath)
+	backup := claudeJSONPath + ".claude-cleaner-orphans.bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(claudeJSONPath, backup); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, claudeJSONPath); err != nil {
+		_ = os.Rename(backup, claudeJSONPath)
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 // trimHistory keeps only the last keepLines lines of histPath, writing atomically.
