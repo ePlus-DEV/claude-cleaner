@@ -148,14 +148,18 @@ npm version major
 
 Open a release PR containing the version bump and changelog update, then merge it into `main`.
 
-No manual tag is required. When `package.json` changes on `main`, the Release workflow:
+Publishing is intentionally manual at the GitHub Release boundary:
 
-1. Verifies `package.json` and `main.go` have the same version.
-2. Creates `v<version>` automatically when the tag does not exist.
-3. Builds cross-platform Go binaries with GoReleaser and creates the GitHub Release.
-4. Publishes the npm wrapper when that exact version is not already on npm.
+1. Create a GitHub Release for `v<version>` from the merged `main` commit.
+2. Click **Publish release**.
+3. The Release workflow starts from the `release.published` event.
+4. It verifies the tag matches both `package.json` and `main.go`.
+5. GoReleaser builds the cross-platform archives and checksums locally, then the workflow uploads them to that published GitHub Release.
+6. The npm wrapper is published only after the release assets are built successfully.
 
-The workflow is safe to rerun: existing tags, GitHub Releases, and npm versions are detected and reused/skipped. Manual execution with an existing tag is still supported from GitHub Actions.
+Merging code or bumping `package.json` does not publish anything by itself.
+
+The workflow can also be rerun manually for an existing published release tag. Existing npm versions are detected and skipped.
 
 npm publishing currently uses the repository `NPM_TOKEN` secret.
 
