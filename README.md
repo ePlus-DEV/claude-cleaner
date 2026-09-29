@@ -182,6 +182,10 @@ go build -o claude-cleaner.exe .
 .\claude-cleaner.exe
 ```
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned releases, automation improvements, storage insights, cleanup policies, and the longer-term v2 direction.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, build, test, and release instructions. For internal data flow diagrams see [ARCHITECTURE.md](ARCHITECTURE.md).
