@@ -3,8 +3,8 @@
 [![CI](https://github.com/ePlus-DEV/claude-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/ePlus-DEV/claude-cleaner/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ePlus-DEV/claude-cleaner)](https://github.com/ePlus-DEV/claude-cleaner/releases)
 [![npm version](https://img.shields.io/npm/v/claude-cleaner.svg)](https://www.npmjs.com/package/claude-cleaner)
+[![npm version](https://img.shields.io/npm/dm/claude-cleaner)](https://www.npmjs.com/package/claude-cleaner)
 [![Go version](https://img.shields.io/github/go-mod/go-version/ePlus-DEV/claude-cleaner)](go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ePlus-DEV/claude-cleaner)](https://goreportcard.com/report/github.com/ePlus-DEV/claude-cleaner)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Known Vulnerabilities](https://snyk.io/test/github/ePlus-DEV/claude-cleaner/badge.svg)](https://snyk.io/test/github/ePlus-DEV/claude-cleaner)
 
