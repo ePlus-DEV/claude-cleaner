@@ -194,6 +194,102 @@ func cleanTitle(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// previewMessage is one human-readable turn of a conversation.
+type previewMessage struct {
+	Role string // "user" or "assistant"
+	Text string
+	Time string
+}
+
+// readSessionPreview reads the first messages of a conversation for inspection
+// before deletion. Tool calls/results are skipped; only prose is shown.
+func readSessionPreview(path string, limit int) []previewMessage {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	r := bufio.NewReaderSize(f, 64*1024)
+	var out []previewMessage
+	for readErr := error(nil); readErr == nil; {
+		var line []byte
+		line, readErr = r.ReadBytes('\n')
+		if len(line) == 0 {
+			continue
+		}
+		var row struct {
+			Type      string          `json:"type"`
+			Timestamp string          `json:"timestamp"`
+			Message   json.RawMessage `json:"message"`
+		}
+		if json.Unmarshal(line, &row) != nil {
+			continue
+		}
+		if row.Type != "user" && row.Type != "assistant" {
+			continue
+		}
+		var msg struct {
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(row.Message, &msg) != nil {
+			continue
+		}
+		var text string
+		if json.Unmarshal(msg.Content, &text) != nil || text == "" {
+			var parts []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(msg.Content, &parts) == nil {
+				var sb strings.Builder
+				for _, p := range parts {
+					if p.Type == "text" {
+						sb.WriteString(p.Text)
+						sb.WriteString("\n")
+					}
+				}
+				text = sb.String()
+			}
+		}
+		text = cleanPreviewText(text)
+		if text == "" {
+			continue
+		}
+		if len(text) > 1200 {
+			text = text[:1200] + " …"
+		}
+		t := ""
+		if len(row.Timestamp) >= 16 {
+			t = row.Timestamp[:16]
+		}
+		out = append(out, previewMessage{Role: row.Type, Text: text, Time: t})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// cleanPreviewText strips injected reminder blocks but keeps line breaks.
+func cleanPreviewText(s string) string {
+	for {
+		start := strings.Index(s, "<system-reminder>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "</system-reminder>")
+		if end < 0 {
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[start+end+len("</system-reminder>"):]
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.TrimSpace(s)
+}
+
 // scanProjectTokens sums token usage from all top-level .jsonl session files.
 func scanProjectTokens(dirPath string) (int64, bool) {
 	entries, err := os.ReadDir(dirPath)

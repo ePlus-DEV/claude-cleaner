@@ -76,6 +76,7 @@ func (m model) openProjectDetail(s Session) (tea.Model, tea.Cmd) {
 	m.detailNotice = ""
 	m.detailQuery = ""
 	m.detailSearching = false
+	m.detailOffset = 0
 
 	projectDir := s.Path
 	return m, tea.Batch(
@@ -133,6 +134,7 @@ func (m *model) jumpToDetailMatch() {
 		s := m.projectSessions[i]
 		if strings.Contains(strings.ToLower(s.Title+" "+s.ID), q) {
 			m.detailCursor = i
+			m.ensureDetailCursorVisible(len(m.projectSessions))
 			return
 		}
 	}
@@ -165,23 +167,44 @@ func (m model) handleProjectDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		m.detailSearching = true
 		m.detailQuery = ""
+		m.detailOffset = 0
 	case "up", "k":
 		if m.detailCursor > 0 {
 			m.detailCursor--
 		} else if n > 0 {
 			m.detailCursor = n - 1
 		}
+		m.ensureDetailCursorVisible(n)
 	case "down", "j":
 		if m.detailCursor < n-1 {
 			m.detailCursor++
 		} else if n > 0 {
 			m.detailCursor = 0
 		}
+		m.ensureDetailCursorVisible(n)
+	case "pgup":
+		m.detailCursor -= m.detailPageSize()
+		if m.detailCursor < 0 {
+			m.detailCursor = 0
+		}
+		m.ensureDetailCursorVisible(n)
+	case "pgdn":
+		m.detailCursor += m.detailPageSize()
+		if n > 0 && m.detailCursor > n-1 {
+			m.detailCursor = n - 1
+		}
+		m.ensureDetailCursorVisible(n)
 	case "g":
 		m.detailCursor = 0
+		m.ensureDetailCursorVisible(n)
 	case "G":
 		if n > 0 {
 			m.detailCursor = n - 1
+		}
+		m.ensureDetailCursorVisible(n)
+	case "v":
+		if n > 0 && m.detailCursor < n {
+			return m.openSessionPreview(m.projectSessions[m.detailCursor])
 		}
 	case "l", "L":
 		m = m.toggleProtected(m.detailProject)
@@ -458,8 +481,20 @@ func (m model) viewProjectDetail() string {
 	if rowW < 100 {
 		rowW = 100
 	}
-	for i, session := range m.projectSessions {
-		isCursor := m.detailCursor == i
+	m.clampDetailOffset(len(m.projectSessions))
+	used := lipgloss.Height(sb.String()) + lipgloss.Height(m.renderHeader())
+	maxRows := m.height - used - 1 // reserve one line for the footer
+	if maxRows < 3 {
+		maxRows = 3
+	}
+	end := m.detailOffset + maxRows
+	if end > len(m.projectSessions) {
+		end = len(m.projectSessions)
+	}
+	visible := m.projectSessions[m.detailOffset:end]
+
+	for i, session := range visible {
+		isCursor := m.detailCursor == m.detailOffset+i
 		isSelected := m.detailSelected[session.Index]
 		bg := clrBg
 		rowStyle := rowNormalStyle
@@ -500,9 +535,12 @@ func (m model) viewProjectDetail() string {
 		sb.WriteString(rowStyle.Width(rowW).Render(cur+check+" "+id+"  "+mod+"  "+msgs+"  "+tokCell+"  "+size) + "\n")
 	}
 
-	footer := "/ search title  ↑/↓ navigate  space select  a all  n none  enter delete selected  l lock/unlock  esc back"
+	footer := "/ search title  v preview  ↑/↓/PgUp/PgDn navigate  space select  a all  n none  enter delete selected  l lock/unlock  esc back"
 	if m.isProtected(m.detailProject) {
-		footer = "↑/↓ navigate  l unlock project  esc back    destructive actions are disabled while locked"
+		footer = "v preview  ↑/↓/PgUp/PgDn navigate  l unlock project  esc back    destructive actions are disabled while locked"
+	}
+	if len(m.projectSessions) > maxRows {
+		footer += fmt.Sprintf("  [%d-%d/%d]", m.detailOffset+1, end, len(m.projectSessions))
 	}
 	sb.WriteString(helpStyle.Render(footer))
 	return sb.String()

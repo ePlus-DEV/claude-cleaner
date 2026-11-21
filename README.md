@@ -76,12 +76,14 @@ claude-cleaner --version
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Navigate list |
+| `PgUp` / `PgDn` | Scroll one page in long lists |
 | `g` / `G` | Jump to top / bottom |
 | `space` | Toggle selection |
 | `a` | Select / deselect all visible items |
 | `n` | Unselect all |
 | `o` | Select orphaned projects only |
 | `enter` | Open Project Detail when nothing is selected; otherwise delete selected project session-history directories |
+| `v` (in Project Detail) | Preview the selected conversation's messages before deleting |
 | `l` | Lock / unlock project (protected projects are skipped by destructive bulk actions) |
 | `X` | Forget project: remove Claude session data + project metadata, never source code |
 | `p` | Full purge selected projects through Claude CLI when available |
@@ -104,6 +106,9 @@ claude-cleaner --version
 - Status column `●` (session files on disk) / `○` (config only, no local data).
 - Windows path dedup — `d:/foo` and `D:/foo` treated as the same project; higher-token entry wins.
 - Project Detail screen with per-conversation JSONL session count, modified time, message count, token usage, and size.
+- Conversation titles shown in the detail list (custom title when available, otherwise the first user prompt), with incremental title search via `/`.
+- Conversation preview with `v`: inspect the first messages of a session before deciding to delete it.
+- Scrollable project and session lists with `PgUp`/`PgDn`, plus a visible position indicator.
 - Delete individual conversation sessions without removing the entire project history.
 - Protected Projects with `l`: locked projects are excluded from select-all, orphan selection, delete, purge, and forget operations.
 - Forget Project with `X`: removes Claude-owned session data and the matching `~/.claude.json` project entry while preserving the real source project.
