@@ -31,6 +31,7 @@ type Session struct {
 type ProjectSession struct {
 	Index        int
 	ID           string
+	Title        string // first user prompt, cleaned up for display
 	Path         string
 	Modified     time.Time
 	Size         int64
@@ -116,6 +117,83 @@ func scanSessionFile(path string) (total int64, hasTokenData bool, messageCount 
 	return total, hasTokenData, messageCount
 }
 
+// readSessionTitle returns the first real user prompt of a conversation JSONL.
+// Only the first lines are read, so this stays cheap even for very large files.
+func readSessionTitle(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	r := bufio.NewReaderSize(f, 64*1024)
+	for i := 0; i < 200; i++ {
+		line, readErr := r.ReadBytes('\n')
+		if len(line) > 0 {
+			var row struct {
+				Type        string `json:"type"`
+				CustomTitle string `json:"customTitle"`
+				Message     struct {
+					Content json.RawMessage `json:"content"`
+				} `json:"message"`
+			}
+			if json.Unmarshal(line, &row) == nil && row.Type == "custom-title" && row.CustomTitle != "" {
+				return cleanTitle(row.CustomTitle)
+			}
+			if json.Unmarshal(line, &row) == nil && row.Type == "user" {
+				var text string
+				if json.Unmarshal(row.Message.Content, &text) == nil && text != "" {
+					return cleanTitle(text)
+				}
+				var parts []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}
+				if json.Unmarshal(row.Message.Content, &parts) == nil {
+					for _, p := range parts {
+						if p.Type == "text" && p.Text != "" {
+							return cleanTitle(p.Text)
+						}
+					}
+				}
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return ""
+}
+
+// cleanTitle strips injected tags and collapses whitespace for a one-line label.
+func cleanTitle(s string) string {
+	// Drop Claude's injected <system-reminder> ... </system-reminder> blocks.
+	for {
+		start := strings.Index(s, "<system-reminder>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start:], "</system-reminder>")
+		if end < 0 {
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[start+end+len("</system-reminder>"):]
+	}
+	// Auto-continuation prompts bury the real topic in an embedded summary.
+	if strings.HasPrefix(s, "This session is being continued") {
+		if i := strings.Index(s, "Summary:"); i >= 0 {
+			s = s[i+len("Summary:"):]
+			if j := strings.Index(s, "\n\n"); j >= 0 {
+				s = s[:j]
+			}
+			s = strings.NewReplacer("## ", "", "# ", "", "- ", "", "**", "").Replace(s)
+		}
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.TrimSpace(s)
+}
+
 // scanProjectTokens sums token usage from all top-level .jsonl session files.
 func scanProjectTokens(dirPath string) (int64, bool) {
 	entries, err := os.ReadDir(dirPath)
@@ -158,6 +236,7 @@ func scanProjectSessions(dirPath string) ([]ProjectSession, error) {
 		tokens, hasTokens, messages := scanSessionFile(path)
 		sessions = append(sessions, ProjectSession{
 			ID:           strings.TrimSuffix(e.Name(), filepath.Ext(e.Name())),
+			Title:        readSessionTitle(path),
 			Path:         path,
 			Modified:     info.ModTime(),
 			Size:         info.Size(),
@@ -490,7 +569,7 @@ func forgetProject(s Session, projectsDir, claudeJSONPath string) error {
 			if err := safeRemove(projectsDir, s.Path); err != nil {
 				return err
 			}
-	}
+		}
 	}
 
 	if s.ProjectPath == "" || claudeJSONPath == "" {

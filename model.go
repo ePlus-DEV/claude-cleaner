@@ -170,24 +170,24 @@ type categoryCleanDoneMsg struct {
 // ── Model ────────────────────────────────────────────────────────────────────
 
 type model struct {
-	state          appState
-	claudeDir      string
-	claudeJSONPath string
-	projectsDir    string
-	sessions       []Session
-	selected       map[int]bool
-	cursor         int
-	spinner        spinner.Model
-	confirmIdx     int  // 0 = No (default), 1 = Yes
-	purgeMode      bool // true = full purge via claude CLI
-	deleted        []string
-	failed         []string
-	width          int
-	deleteTotal        int
-	deleteProgress     int
-	deleteSelectedSnap map[int]bool
-	claudeCLIVersion   string
-	claudeCLIDetected  bool
+	state               appState
+	claudeDir           string
+	claudeJSONPath      string
+	projectsDir         string
+	sessions            []Session
+	selected            map[int]bool
+	cursor              int
+	spinner             spinner.Model
+	confirmIdx          int  // 0 = No (default), 1 = Yes
+	purgeMode           bool // true = full purge via claude CLI
+	deleted             []string
+	failed              []string
+	width               int
+	deleteTotal         int
+	deleteProgress      int
+	deleteSelectedSnap  map[int]bool
+	claudeCLIVersion    string
+	claudeCLIDetected   bool
 	latestVersion       string
 	hasUpdate           bool
 	updateChecked       bool
@@ -224,6 +224,8 @@ type model struct {
 	detailCursor    int
 	detailLoading   bool
 	detailNotice    string
+	detailQuery     string // incremental search over session titles
+	detailSearching bool
 	forgetTargets   []Session
 	forgetMode      bool
 
@@ -937,7 +939,7 @@ func (m model) doCategoryClean() (tea.Model, tea.Cmd) {
 				}
 				var err error
 				if cat.Key == "json-orphans" {
-				err = cleanOrphanEntriesExcept(cat.Path, protected)
+					err = cleanOrphanEntriesExcept(cat.Path, protected)
 				} else {
 					err = cleanCategory(cat, claudeDir)
 				}
