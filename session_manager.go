@@ -74,6 +74,9 @@ func (m model) openProjectDetail(s Session) (tea.Model, tea.Cmd) {
 	m.detailCursor = 0
 	m.detailLoading = true
 	m.detailNotice = ""
+	m.detailQuery = ""
+	m.detailSearching = false
+	m.detailOffset = 0
 
 	projectDir := s.Path
 	return m, tea.Batch(
@@ -115,28 +118,93 @@ func updateProjectStatsFromSessions(project Session, sessions []ProjectSession) 
 	return project
 }
 
+// jumpToDetailMatch moves the cursor to the next session whose title or ID
+// contains the incremental search query, wrapping around the list.
+func (m *model) jumpToDetailMatch() {
+	n := len(m.projectSessions)
+	if n == 0 {
+		return
+	}
+	q := strings.ToLower(m.detailQuery)
+	if q == "" {
+		return
+	}
+	for step := 1; step <= n; step++ {
+		i := (m.detailCursor + step) % n
+		s := m.projectSessions[i]
+		if strings.Contains(strings.ToLower(s.Title+" "+s.ID), q) {
+			m.detailCursor = i
+			m.ensureDetailCursorVisible(len(m.projectSessions))
+			return
+		}
+	}
+}
+
 func (m model) handleProjectDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := len(m.projectSessions)
 	locked := m.isProtected(m.detailProject)
 
+	if m.detailSearching {
+		switch msg.String() {
+		case "esc", "enter":
+			m.detailSearching = false
+		case "backspace", "ctrl+h":
+			runes := []rune(m.detailQuery)
+			if len(runes) > 0 {
+				m.detailQuery = string(runes[:len(runes)-1])
+			}
+			m.jumpToDetailMatch()
+		default:
+			if len(msg.Runes) > 0 {
+				m.detailQuery += string(msg.Runes)
+				m.jumpToDetailMatch()
+			}
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
+	case "/":
+		m.detailSearching = true
+		m.detailQuery = ""
+		m.detailOffset = 0
 	case "up", "k":
 		if m.detailCursor > 0 {
 			m.detailCursor--
 		} else if n > 0 {
 			m.detailCursor = n - 1
 		}
+		m.ensureDetailCursorVisible(n)
 	case "down", "j":
 		if m.detailCursor < n-1 {
 			m.detailCursor++
 		} else if n > 0 {
 			m.detailCursor = 0
 		}
+		m.ensureDetailCursorVisible(n)
+	case "pgup":
+		m.detailCursor -= m.detailPageSize()
+		if m.detailCursor < 0 {
+			m.detailCursor = 0
+		}
+		m.ensureDetailCursorVisible(n)
+	case "pgdn":
+		m.detailCursor += m.detailPageSize()
+		if n > 0 && m.detailCursor > n-1 {
+			m.detailCursor = n - 1
+		}
+		m.ensureDetailCursorVisible(n)
 	case "g":
 		m.detailCursor = 0
+		m.ensureDetailCursorVisible(n)
 	case "G":
 		if n > 0 {
 			m.detailCursor = n - 1
+		}
+		m.ensureDetailCursorVisible(n)
+	case "v":
+		if n > 0 && m.detailCursor < n {
+			return m.openSessionPreview(m.projectSessions[m.detailCursor])
 		}
 	case "l", "L":
 		m = m.toggleProtected(m.detailProject)
@@ -347,6 +415,13 @@ func (m model) viewProjectDetail() string {
 		sb.WriteString("  " + dimStyle.Render(m.detailProject.ProjectPath) + "\n")
 	}
 	sb.WriteString("  " + dimStyle.Render(strings.Repeat("─", 78)) + "\n")
+	if m.detailSearching || m.detailQuery != "" {
+		label := "search: " + m.detailQuery
+		if m.detailSearching {
+			label += "▌"
+		}
+		sb.WriteString("  " + lipgloss.NewStyle().Foreground(clrCyan).Render(label) + "\n")
+	}
 
 	if m.detailLoading {
 		sb.WriteString("\n  " + m.spinner.View() + " Scanning conversations…\n")
@@ -393,21 +468,33 @@ func (m model) viewProjectDetail() string {
 	}
 
 	const (
-		idW = 30
+		idW   = 46
 		timeW = 16
-		msgW = 9
-		tokW = 10
+		msgW  = 9
+		tokW  = 10
 	)
 	sb.WriteString(dimStyle.Render(fmt.Sprintf("        %-*s  %-*s  %-*s  %-*s  %s",
-		idW, "Session", timeW, "Modified", msgW, "Messages", tokW, "Tokens", "Size")) + "\n")
-	sb.WriteString(dimStyle.Render("  " + strings.Repeat("─", 88)) + "\n")
+		idW, "Session (title)", timeW, "Modified", msgW, "Messages", tokW, "Tokens", "Size")) + "\n")
+	sb.WriteString(dimStyle.Render("  "+strings.Repeat("─", 104)) + "\n")
 
 	rowW := m.width
 	if rowW < 100 {
 		rowW = 100
 	}
-	for i, session := range m.projectSessions {
-		isCursor := m.detailCursor == i
+	m.clampDetailOffset(len(m.projectSessions))
+	used := lipgloss.Height(sb.String()) + lipgloss.Height(m.renderHeader())
+	maxRows := m.height - used - 1 // reserve one line for the footer
+	if maxRows < 3 {
+		maxRows = 3
+	}
+	end := m.detailOffset + maxRows
+	if end > len(m.projectSessions) {
+		end = len(m.projectSessions)
+	}
+	visible := m.projectSessions[m.detailOffset:end]
+
+	for i, session := range visible {
+		isCursor := m.detailCursor == m.detailOffset+i
 		isSelected := m.detailSelected[session.Index]
 		bg := clrBg
 		rowStyle := rowNormalStyle
@@ -426,7 +513,17 @@ func (m model) viewProjectDetail() string {
 		if isSelected {
 			check = lipgloss.NewStyle().Foreground(clrGreen).Background(bg).Bold(true).Render("[✓]")
 		}
-		id := lipgloss.NewStyle().Foreground(clrFg).Background(bg).Width(idW).Render(truncate(session.ID, idW))
+		label := session.Title
+		if label == "" {
+			label = session.ID
+		} else {
+			shortID := session.ID
+			if len(shortID) > 8 {
+				shortID = shortID[:8]
+			}
+			label = truncate(label, idW-11) + "  " + shortID
+		}
+		id := lipgloss.NewStyle().Foreground(clrFg).Background(bg).Width(idW).Render(truncate(label, idW))
 		mod := lipgloss.NewStyle().Foreground(clrComment).Background(bg).Width(timeW).Render(session.Modified.Format("2006-01-02 15:04"))
 		msgs := lipgloss.NewStyle().Foreground(clrComment).Background(bg).Width(msgW).Render(fmt.Sprintf("%d", session.MessageCount))
 		tokens := "—"
@@ -438,9 +535,12 @@ func (m model) viewProjectDetail() string {
 		sb.WriteString(rowStyle.Width(rowW).Render(cur+check+" "+id+"  "+mod+"  "+msgs+"  "+tokCell+"  "+size) + "\n")
 	}
 
-	footer := "↑/↓ navigate  space select  a all  n none  enter delete selected  l lock/unlock  esc back"
+	footer := "/ search title  v preview  ↑/↓/PgUp/PgDn navigate  space select  a all  n none  enter delete selected  l lock/unlock  esc back"
 	if m.isProtected(m.detailProject) {
-		footer = "↑/↓ navigate  l unlock project  esc back    destructive actions are disabled while locked"
+		footer = "v preview  ↑/↓/PgUp/PgDn navigate  l unlock project  esc back    destructive actions are disabled while locked"
+	}
+	if len(m.projectSessions) > maxRows {
+		footer += fmt.Sprintf("  [%d-%d/%d]", m.detailOffset+1, end, len(m.projectSessions))
 	}
 	sb.WriteString(helpStyle.Render(footer))
 	return sb.String()
@@ -457,8 +557,12 @@ func (m model) viewSessionConfirm() string {
 		if session.HasTokenData {
 			tokens = formatTokens(session.TotalTokens) + " tok"
 		}
-		sb.WriteString(fmt.Sprintf("    %s  %-32s  %-12s  %s\n",
-			checkOnStyle.Render("✓"), truncate(session.ID, 32), tokens, formatSize(session.Size)))
+		label := session.Title
+		if label == "" {
+			label = session.ID
+		}
+		sb.WriteString(fmt.Sprintf("    %s  %-46s  %-12s  %s\n",
+			checkOnStyle.Render("✓"), truncate(label, 46), tokens, formatSize(session.Size)))
 	}
 	sb.WriteString("\n  " + dimStyle.Render("Only selected JSONL conversation files will be deleted. Source code is NOT affected.") + "\n\n")
 	no := dimStyle.Render("[ N ]  No, cancel")

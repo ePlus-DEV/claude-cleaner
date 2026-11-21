@@ -118,6 +118,7 @@ const (
 	stateProjectDetail
 	stateSessionConfirm
 	stateForgetConfirm
+	stateSessionPreview
 )
 
 const bannerLogo = ` ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
@@ -170,24 +171,26 @@ type categoryCleanDoneMsg struct {
 // ── Model ────────────────────────────────────────────────────────────────────
 
 type model struct {
-	state          appState
-	claudeDir      string
-	claudeJSONPath string
-	projectsDir    string
-	sessions       []Session
-	selected       map[int]bool
-	cursor         int
-	spinner        spinner.Model
-	confirmIdx     int  // 0 = No (default), 1 = Yes
-	purgeMode      bool // true = full purge via claude CLI
-	deleted        []string
-	failed         []string
-	width          int
-	deleteTotal        int
-	deleteProgress     int
-	deleteSelectedSnap map[int]bool
-	claudeCLIVersion   string
-	claudeCLIDetected  bool
+	state               appState
+	claudeDir           string
+	claudeJSONPath      string
+	projectsDir         string
+	sessions            []Session
+	selected            map[int]bool
+	cursor              int
+	spinner             spinner.Model
+	confirmIdx          int  // 0 = No (default), 1 = Yes
+	purgeMode           bool // true = full purge via claude CLI
+	deleted             []string
+	failed              []string
+	width               int
+	height              int
+	listOffset          int
+	deleteTotal         int
+	deleteProgress      int
+	deleteSelectedSnap  map[int]bool
+	claudeCLIVersion    string
+	claudeCLIDetected   bool
 	latestVersion       string
 	hasUpdate           bool
 	updateChecked       bool
@@ -224,8 +227,16 @@ type model struct {
 	detailCursor    int
 	detailLoading   bool
 	detailNotice    string
-	forgetTargets   []Session
-	forgetMode      bool
+	detailQuery     string // incremental search over session titles
+	detailSearching bool
+	detailOffset    int // first visible row in the project detail list
+
+	previewSession  ProjectSession
+	previewMessages []previewMessage
+	previewOffset   int
+
+	forgetTargets []Session
+	forgetMode    bool
 
 	dryRun bool // --dry-run: simulate deletions without touching files
 }
@@ -332,6 +343,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -339,6 +351,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searching {
 				// q inside search = add to query
 				break
+			}
+			if m.state == stateSessionPreview {
+				return m.closePreview()
 			}
 			m.persistPrefs()
 			return m, tea.Quit
@@ -363,6 +378,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.state == stateForgetConfirm {
 			return m.handleForgetConfirmKey(msg)
+		}
+		if m.state == stateSessionPreview {
+			return m.handlePreviewKey(msg)
 		}
 		return m.handleListKey(msg)
 
@@ -566,11 +584,13 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				runes := []rune(m.searchQuery)
 				m.searchQuery = string(runes[:len(runes)-1])
 				m.cursor = 0
+				m.listOffset = 0
 			}
 		default:
 			if len(msg.Runes) > 0 {
 				m.searchQuery += string(msg.Runes)
 				m.cursor = 0
+				m.listOffset = 0
 			}
 		}
 		return m, nil
@@ -586,6 +606,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if n > 0 {
 			m.cursor = n - 1 // wrap to bottom
 		}
+		m.ensureListCursorVisible(n)
 
 	case "down", "j":
 		if m.cursor < n-1 {
@@ -593,23 +614,42 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.cursor = 0 // wrap to top
 		}
+		m.ensureListCursorVisible(n)
+
+	case "pgup":
+		m.cursor -= m.listPageSize()
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+		m.ensureListCursorVisible(n)
+
+	case "pgdn":
+		m.cursor += m.listPageSize()
+		if n > 0 && m.cursor > n-1 {
+			m.cursor = n - 1
+		}
+		m.ensureListCursorVisible(n)
 
 	case "g":
 		m.cursor = 0
+		m.ensureListCursorVisible(n)
 
 	case "G":
 		if n > 0 {
 			m.cursor = n - 1
 		}
+		m.ensureListCursorVisible(n)
 
 	case "s":
 		m.sortMode = (m.sortMode + 1) % 4
 		m.cursor = 0
+		m.listOffset = 0
 		m.persistPrefs()
 
 	case "f":
 		m.filterMode = (m.filterMode + 1) % 3
 		m.cursor = 0
+		m.listOffset = 0
 		m.persistPrefs()
 
 	case "e":
@@ -617,6 +657,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.expiryIdx = (m.expiryIdx + 1) % len(expiryOptions)
 		m.expiryDays = expiryOptions[m.expiryIdx]
 		m.cursor = 0
+		m.listOffset = 0
 		m.persistPrefs()
 
 	case "c":
@@ -635,6 +676,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searching = true
 		m.searchQuery = ""
 		m.cursor = 0
+		m.listOffset = 0
 
 	case "?":
 		m.showHelp = !m.showHelp
@@ -645,6 +687,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filterMode = filterAll
 			m.sortMode = sortRecent
 			m.cursor = 0
+			m.listOffset = 0
 		} else {
 			m.showHelp = false
 		}
@@ -937,7 +980,7 @@ func (m model) doCategoryClean() (tea.Model, tea.Cmd) {
 				}
 				var err error
 				if cat.Key == "json-orphans" {
-				err = cleanOrphanEntriesExcept(cat.Path, protected)
+					err = cleanOrphanEntriesExcept(cat.Path, protected)
 				} else {
 					err = cleanCategory(cat, claudeDir)
 				}
@@ -1156,6 +1199,8 @@ func (m model) View() string {
 		body = m.viewSessionConfirm()
 	case stateForgetConfirm:
 		body = m.viewForgetConfirm()
+	case stateSessionPreview:
+		body = m.viewSessionPreview()
 	}
 
 	return header + body
@@ -1175,6 +1220,7 @@ func (m model) viewHelp() string {
 	sb.WriteString("  " + dimStyle.Render(strings.Repeat("─", 44)) + "\n\n")
 
 	sb.WriteString(row("↑/↓  j/k", "Navigate list"))
+	sb.WriteString(row("PgUp / PgDn", "Scroll a page in long lists"))
 	sb.WriteString(row("g / G", "Jump to top / bottom"))
 	sb.WriteString(row("space", "Toggle selection"))
 	sb.WriteString(row("a", "Select / deselect all (visible)"))
@@ -1182,6 +1228,7 @@ func (m model) viewHelp() string {
 	sb.WriteString(row("o", "Select all orphaned projects (○)"))
 	sb.WriteString(row("d", "Reset sort / filter / search / selection"))
 	sb.WriteString(row("enter", "Open project detail, or delete selected projects"))
+	sb.WriteString(row("v  (in detail)", "Preview conversation content before deleting"))
 	sb.WriteString(row("l", "Lock / unlock protected project"))
 	sb.WriteString(row("X", "Forget project data + Claude metadata"))
 	sb.WriteString(row("p", "Purge mode (full claude project purge)"))
@@ -1288,8 +1335,20 @@ func (m model) viewList() string {
 		rowW = 100
 	}
 
-	for i, s := range sessions {
-		isCursor := m.cursor == i
+	m.clampListOffset(len(sessions))
+	used := lipgloss.Height(sb.String()) + lipgloss.Height(m.renderHeader())
+	maxRows := m.height - used - 1 // reserve one line for the footer
+	if maxRows < 3 {
+		maxRows = 3
+	}
+	end := m.listOffset + maxRows
+	if end > len(sessions) {
+		end = len(sessions)
+	}
+	visible := sessions[m.listOffset:end]
+
+	for i, s := range visible {
+		isCursor := m.cursor == m.listOffset+i
 		isSelected := m.selected[s.Index]
 
 		var bg lipgloss.Color
@@ -1395,9 +1454,12 @@ func (m model) viewList() string {
 		expiryLabel = fmt.Sprintf("%dd", m.expiryDays)
 	}
 	footer := fmt.Sprintf(
-		"↑/↓ navigate  enter open/delete  space select  a all  l lock  X forget  s sort  f filter  e expiry:%s  c categories  / search  ? help  q quit    %s",
+		"↑/↓/PgUp/PgDn navigate  enter open/delete  space select  a all  l lock  X forget  s sort  f filter  e expiry:%s  c categories  / search  ? help  q quit    %s",
 		expiryLabel, selInfo,
 	)
+	if len(sessions) > maxRows {
+		footer += fmt.Sprintf("  [%d-%d/%d]", m.listOffset+1, end, len(sessions))
+	}
 	sb.WriteString(helpStyle.Render(footer))
 
 	return sb.String()
